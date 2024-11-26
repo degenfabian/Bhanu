@@ -1,0 +1,5 @@
+data/
+.ruff_cache/
+__pycache__/
+model_weights/
+.DS_Store
