@@ -119,7 +119,7 @@ def load_data(
                 files_to_process.append((dirpath, file))
 
     # Process each record by iterating through segment list in master header file
-    for dirpath, file in tqdm(files_to_process, desc="Processing files"):
+    for dirpath, file in tqdm(files_to_process, desc="Processing files", position=0, leave=True):
         if "-" in file and not file.endswith("n.hea"):
             try:
                 record_data = wfdb.rdheader(
