@@ -232,12 +232,12 @@ def main():
     os.makedirs("data", exist_ok=True)
 
     print("Processing PD data...")
-    pd_signals, pd_labels = load_data("waveform_data/PD/", label=1)
+    pd_signals, pd_labels = load_data("data/waveform_data/PD/", label=1)
     torch.save((pd_signals, pd_labels), "data/pd_data.pt")
     print(f"Saved {len(pd_signals)} PD segments")
 
     print("Processing non-PD data...")
-    non_pd_signals, non_pd_labels = load_data("waveform_data/non_PD/", label=0)
+    non_pd_signals, non_pd_labels = load_data("data/waveform_data/non_PD/", label=0)
     torch.save((non_pd_signals, non_pd_labels), "data/non_pd_data.pt")
     print(f"Saved {len(non_pd_signals)} non-PD segments")
 
