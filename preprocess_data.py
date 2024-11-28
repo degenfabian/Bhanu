@@ -150,10 +150,12 @@ def load_data(
                     segment_metadata = wfdb.rdheader(record_name=record_name)
                     segment_length = segment_metadata.sig_len / segment_metadata.fs
 
-                    # Skip if segment is shorter than required length
-                    if segment_length < (
+                    minimum_segment_length = (
                         2 * distance_from_start_and_end + no_sec_to_load
-                    ):
+                    )  # distance_from_start_and_end is multiplied by 2 because it is skipped from both start and end
+
+                    # Skip if segment is shorter than required length
+                    if segment_length < minimum_segment_length:
                         continue
 
                     signals_present = segment_metadata.sig_name
@@ -164,10 +166,7 @@ def load_data(
                         start_seconds = distance_from_start_and_end
 
                         # Load the segment in chunks of no_sec_to_load seconds
-                        while (
-                            segment_length
-                            >= 2 * distance_from_start_and_end + no_sec_to_load
-                        ):
+                        while segment_length >= minimum_segment_length:
                             ppg = load_ppg(
                                 segment_metadata,
                                 record_name,
