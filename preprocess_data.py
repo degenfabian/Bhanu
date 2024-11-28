@@ -73,8 +73,8 @@ def filter_ppg(ppg, metadata):
         Filtered PPG signal
     """
 
-    lpf_cutoff = 0.7
-    hpf_cutoff = 10
+    lpf_cutoff = 1
+    hpf_cutoff = 15
 
     sos_ppg = sp.butter(
         10, [lpf_cutoff, hpf_cutoff], btype="bandpass", output="sos", fs=metadata.fs
@@ -308,7 +308,7 @@ def main():
     pd_signals, pd_labels, pd_patient_ids = load_data("data/waveform_data/PD/", label=1)
     torch.save((pd_signals, pd_labels, pd_patient_ids), "data/pd_data.pt")
     print(
-        f"Saved {len(pd_signals)} PD segments, from {len(set(pd_patient_ids))} patients, each of length no_sec_to_load seconds (default: 4 seconds)"
+        f"Saved {len(pd_signals)} PD segments, from {len(set(pd_patient_ids))} patients, each of length 10 seconds"
     )
 
     print("Processing non-PD data...")
@@ -319,7 +319,7 @@ def main():
         (non_pd_signals, non_pd_labels, non_pd_patient_ids), "data/non_pd_data.pt"
     )
     print(
-        f"Saved {len(non_pd_signals)} non-PD segments, from {len(set(non_pd_patient_ids))} patients, each of length no_sec_to_load seconds (default: 4 seconds)"
+        f"Saved {len(non_pd_signals)} non-PD segments, from {len(set(non_pd_patient_ids))} patients, each of length 10 seconds"
     )
 
     # Concatenate PD and non-PD data
