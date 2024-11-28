@@ -96,7 +96,7 @@ def load_data(
     label,
     required_signals=["PLETH"],
     no_sec_to_load=10,
-    offset_from_start_to_load=100,
+    distance_from_start_and_end=100,
 ):
     """
     Loads and processes PPG signals from a directory of WFDB records.
@@ -106,7 +106,7 @@ def load_data(
         label: Label to assign to all signals from this directory (0 or 1)
         required_signals: List of required signal types (default: ["PLETH"])
         no_sec_to_load: Number of seconds to load for each segment
-        offset_from_start_to_load: Number of seconds to skip from start of recording
+        distance_from_start_and_end: Number of seconds to skip from the start and end of each segment
 
     Returns:
         Tuple of (signals, labels) as PyTorch tensors
@@ -150,22 +150,21 @@ def load_data(
                     segment_length = segment_metadata.sig_len / segment_metadata.fs
 
                     # Skip if segment is shorter than required length
-                    if segment_length < (offset_from_start_to_load + no_sec_to_load):
+                    if segment_length < (2 * distance_from_start_and_end + no_sec_to_load):
                         continue
 
                     signals_present = segment_metadata.sig_name
 
                     # Check again if all required signals are present because master header doesn't indicate that for all segments it links to
                     if all(x in signals_present for x in required_signals):
-                        start_seconds = offset_from_start_to_load
                         # Load the segment in chunks of no_sec_to_load seconds
                         while (
-                            segment_length >= offset_from_start_to_load + no_sec_to_load
+                            segment_length >= 2 * distance_from_start_and_end + no_sec_to_load 
                         ):
                             ppg = load_ppg(
                                 segment_metadata,
                                 record_name,
-                                start_seconds=start_seconds,
+                                start_seconds=distance_from_start_and_end,
                             )
                             ppg = filter_ppg(ppg, segment_metadata)
 
