@@ -29,7 +29,7 @@ class PPGDataset(Dataset):
         return self.signals[idx], self.labels[idx]
 
 
-def load_ppg(metadata, record_name, start_seconds=100, no_sec_to_load=4):
+def load_ppg(metadata, record_name, start_seconds=100, no_sec_to_load=10, target_fs=50):
     """
     Loads a no_sec_to_load second segment of PPG signal from a WFDB record.
 
@@ -38,6 +38,7 @@ def load_ppg(metadata, record_name, start_seconds=100, no_sec_to_load=4):
         record_name: Name/path of the record to load
         start_seconds: Starting point in seconds from where to load the signal
         no_sec_to_load: Number of seconds of signal to load
+        target_fs: Target sampling frequency to resample the signal to
 
     Returns:
         numpy array containing the PPG signal segment
@@ -57,6 +58,10 @@ def load_ppg(metadata, record_name, start_seconds=100, no_sec_to_load=4):
             break
 
     ppg = raw_data.p_signal[:, sig_no]
+
+    # Resample the signal to target_fs
+    num_samples = int(len(ppg) * target_fs / fs)
+    ppg = sp.resample(ppg, num_samples)
 
     return ppg
 
@@ -90,7 +95,7 @@ def load_data(
     path_to_data,
     label,
     required_signals=["PLETH"],
-    no_sec_to_load=4,
+    no_sec_to_load=10,
     offset_from_start_to_load=100,
 ):
     """
