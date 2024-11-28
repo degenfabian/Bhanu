@@ -66,13 +66,13 @@ def load_ppg(metadata, record_name, start_seconds, no_sec_to_load, target_fs):
     return ppg
 
 
-def filter_ppg(ppg, metadata):
+def filter_ppg(ppg, target_fs):
     """
     Applies bandpass filtering to the PPG signal to remove noise.
 
     Args:
         ppg: Raw PPG signal
-        metadata: WFDB record header containing signal metadata
+        target_fs: Target sampling frequency of the signal
 
     Returns:
         Filtered PPG signal
@@ -82,7 +82,7 @@ def filter_ppg(ppg, metadata):
     hpf_cutoff = 15
 
     sos_ppg = sp.butter(
-        10, [lpf_cutoff, hpf_cutoff], btype="bandpass", output="sos", fs=metadata.fs
+        10, [lpf_cutoff, hpf_cutoff], btype="bandpass", output="sos", fs=target_fs
     )
 
     # Apply zero-phase filtering
@@ -162,7 +162,7 @@ def load_data(
                     if all(x in signals_present for x in required_signals):
                         # Starting point for loading the segment
                         start_seconds = distance_from_start_and_end
-                        
+
                         # Load the segment in chunks of no_sec_to_load seconds
                         while (
                             segment_length
@@ -175,7 +175,7 @@ def load_data(
                                 no_sec_to_load=no_sec_to_load,
                                 target_fs=target_fs,
                             )
-                            ppg = filter_ppg(ppg, segment_metadata)
+                            ppg = filter_ppg(ppg, target_fs)
 
                             # Skip if any NaN values are present
                             if np.isnan(ppg).any():
