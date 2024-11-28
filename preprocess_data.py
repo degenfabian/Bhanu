@@ -110,6 +110,7 @@ def load_data(
     print("Loading data from " + path_to_data + "\n")
     all_signals = []
     all_labels = []
+    all_patient_ids = []  # Track patient IDs for patient-level splits
 
     # Find all master header files
     files_to_process = []
@@ -119,9 +120,12 @@ def load_data(
                 files_to_process.append((dirpath, file))
 
     # Process each record by iterating through segment list in master header file
-    for dirpath, file in tqdm(files_to_process, desc="Processing files", position=0, leave=True):
+    for dirpath, file in tqdm(
+        files_to_process, desc="Processing files", position=0, leave=True
+    ):
         if "-" in file and not file.endswith("n.hea"):
             try:
+                patient_id = dirpath.split("/")[-1]
                 record_data = wfdb.rdheader(
                     record_name=os.path.join(dirpath, file[:-4]), rd_segments=True
                 )
@@ -169,6 +173,7 @@ def load_data(
                             ppg = torch.from_numpy(ppg.copy())
                             all_signals.append(ppg)
                             all_labels.append(label)
+                            all_patient_ids.append(patient_id)
 
                             start_seconds += no_sec_to_load
                             segment_length -= no_sec_to_load
@@ -177,7 +182,7 @@ def load_data(
                 print(f"Error loading {segment} from {file[:-4]}")
                 continue
 
-    return torch.stack(all_signals), torch.tensor(all_labels)
+    return torch.stack(all_signals), torch.tensor(all_labels), all_patient_ids
 
 
 def get_dataloaders(cfg):
@@ -228,22 +233,99 @@ def tokenize_signals(signals):
     return np.round(scale).astype(int)
 
 
+def split_by_patient(
+    signals, labels, patient_ids, test_size=0.2, val_size=0.1, random_state=42
+):
+    """
+    Split data ensuring all segments from the same patient stay together.
+
+    Args:
+        signals: Tensor of signal data
+        labels: Tensor of labels
+        patient_ids: List of patient IDs corresponding to each signal
+        test_size: Proportion of data to use for testing
+        val_size: Proportion of training data to use for validation
+        random_state: Random seed for reproducibility
+
+    Returns:
+        Tuple of (train_signals, train_labels, val_signals, val_labels, test_signals, test_labels)
+    """
+
+    # Get unique patient IDs and map each patient to their label
+    unique_patient_ids = list(set(patient_ids))
+    patient_to_label = {
+        patient_id: labels[patient_ids.index(patient_id)]
+        for patient_id in unique_patient_ids
+    }
+
+    # Split patients into train and test set
+    train_val_patients, test_patients = train_test_split(
+        unique_patient_ids,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=[patient_to_label[patient_id] for patient_id in unique_patient_ids],
+    )
+
+    # Further split train set into train and validation set
+    val_size = val_size / (1 - test_size)  # Adjust val_size relative to train set
+    train_patients, val_patients = train_test_split(
+        train_val_patients,
+        test_size=val_size,
+        random_state=random_state,
+        stratify=[patient_to_label[patient_id] for patient_id in train_val_patients],
+    )
+
+    # Get indices of each patient in the train, val, and test sets
+    train_indices = [
+        i for i, patient_id in enumerate(patient_ids) if patient_id in train_patients
+    ]
+    val_indices = [
+        i for i, patient_id in enumerate(patient_ids) if patient_id in val_patients
+    ]
+    test_indices = [
+        i for i, patient_id in enumerate(patient_ids) if patient_id in test_patients
+    ]
+
+    # Split signals and labels based on patient indices
+    train_signals, train_labels = signals[train_indices], labels[train_indices]
+    val_signals, val_labels = signals[val_indices], labels[val_indices]
+    test_signals, test_labels = signals[test_indices], labels[test_indices]
+
+    return (
+        train_signals,
+        train_labels,
+        val_signals,
+        val_labels,
+        test_signals,
+        test_labels,
+    )
+
+
 def main():
     os.makedirs("data", exist_ok=True)
 
     print("Processing PD data...")
-    pd_signals, pd_labels = load_data("data/waveform_data/PD/", label=1)
-    torch.save((pd_signals, pd_labels), "data/pd_data.pt")
-    print(f"Saved {len(pd_signals)} PD segments")
+    pd_signals, pd_labels, pd_patient_ids = load_data("data/waveform_data/PD/", label=1)
+    torch.save((pd_signals, pd_labels, pd_patient_ids), "data/pd_data.pt")
+    print(
+        f"Saved {len(pd_signals)} PD segments, from {len(pd_patient_ids)} patients, each of length no_sec_to_load seconds (default: 4 seconds)"
+    )
 
     print("Processing non-PD data...")
-    non_pd_signals, non_pd_labels = load_data("data/waveform_data/non_PD/", label=0)
-    torch.save((non_pd_signals, non_pd_labels), "data/non_pd_data.pt")
-    print(f"Saved {len(non_pd_signals)} non-PD segments")
+    non_pd_signals, non_pd_labels, non_pd_patient_ids = load_data(
+        "data/waveform_data/non_PD/", label=0
+    )
+    torch.save(
+        (non_pd_signals, non_pd_labels, non_pd_patient_ids), "data/non_pd_data.pt"
+    )
+    print(
+        f"Saved {len(non_pd_signals)} non-PD segments, from {len(non_pd_patient_ids)} patients, each of length no_sec_to_load seconds (default: 4 seconds)"
+    )
 
     # Concatenate PD and non-PD data
     all_signals = torch.cat([pd_signals, non_pd_signals])
     all_labels = torch.cat([pd_labels, non_pd_labels])
+    all_patient_ids = pd_patient_ids + non_pd_patient_ids
 
     # Clear memory
     del pd_signals, pd_labels, non_pd_signals, non_pd_labels
@@ -260,25 +342,15 @@ def main():
     del normalized_signals, all_signals, scaled_signals
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-    train_prelim_signals, test_signals, train_prelim_labels, test_labels = (
-        train_test_split(
-            tokenized_signals,
-            all_labels,
-            test_size=0.2,
-            random_state=42,
-            stratify=all_labels,
+    # Split data by patient
+    train_signals, train_labels, val_signals, val_labels, test_signals, test_labels = (
+        split_by_patient(
+            tokenized_signals, all_labels, all_patient_ids, test_size=0.2, val_size=0.1
         )
-    )
-    train_signals, val_signals, train_labels, val_labels = train_test_split(
-        train_prelim_signals,
-        train_prelim_labels,
-        test_size=0.125,
-        random_state=42,
-        stratify=train_prelim_labels,
     )
 
     # Clear memory
-    del train_prelim_signals, train_prelim_labels, all_labels
+    del tokenized_signals, all_labels, all_patient_ids
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
     train_dataset = PPGDataset(train_signals, train_labels)
