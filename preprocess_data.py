@@ -160,6 +160,9 @@ def load_data(
 
                     # Check again if all required signals are present because master header doesn't indicate that for all segments it links to
                     if all(x in signals_present for x in required_signals):
+                        # Starting point for loading the segment
+                        start_seconds = distance_from_start_and_end
+                        
                         # Load the segment in chunks of no_sec_to_load seconds
                         while (
                             segment_length
@@ -168,7 +171,7 @@ def load_data(
                             ppg = load_ppg(
                                 segment_metadata,
                                 record_name,
-                                start_seconds=distance_from_start_and_end,
+                                start_seconds=start_seconds,
                                 no_sec_to_load=no_sec_to_load,
                                 target_fs=target_fs,
                             )
@@ -189,7 +192,7 @@ def load_data(
                             segment_length -= no_sec_to_load
 
             except Exception as e:
-                print(f"Error loading {segment} from {file[:-4]}")
+                print(f"Error loading {segment} from {file[:-4]}: {e}")
                 continue
 
     return torch.stack(all_signals), torch.tensor(all_labels), all_patient_ids
