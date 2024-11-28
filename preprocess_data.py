@@ -29,7 +29,7 @@ class PPGDataset(Dataset):
         return self.signals[idx], self.labels[idx]
 
 
-def load_ppg(metadata, record_name, start_seconds=100, no_sec_to_load=10, target_fs=50):
+def load_ppg(metadata, record_name, start_seconds, no_sec_to_load, target_fs):
     """
     Loads a no_sec_to_load second segment of PPG signal from a WFDB record.
 
@@ -95,8 +95,9 @@ def load_data(
     path_to_data,
     label,
     required_signals=["PLETH"],
-    no_sec_to_load=10,
     distance_from_start_and_end=100,
+    no_sec_to_load=10,
+    target_fs=50,
 ):
     """
     Loads and processes PPG signals from a directory of WFDB records.
@@ -105,9 +106,9 @@ def load_data(
         path_to_data: Directory containing the WFDB records
         label: Label to assign to all signals from this directory (0 or 1)
         required_signals: List of required signal types (default: ["PLETH"])
-        no_sec_to_load: Number of seconds to load for each segment
         distance_from_start_and_end: Number of seconds to skip from the start and end of each segment
-
+        no_sec_to_load: Number of seconds to load for each segment
+        target_fs: Target sampling frequency to resample the signal to
     Returns:
         Tuple of (signals, labels) as PyTorch tensors
     """
@@ -150,7 +151,9 @@ def load_data(
                     segment_length = segment_metadata.sig_len / segment_metadata.fs
 
                     # Skip if segment is shorter than required length
-                    if segment_length < (2 * distance_from_start_and_end + no_sec_to_load):
+                    if segment_length < (
+                        2 * distance_from_start_and_end + no_sec_to_load
+                    ):
                         continue
 
                     signals_present = segment_metadata.sig_name
@@ -159,12 +162,15 @@ def load_data(
                     if all(x in signals_present for x in required_signals):
                         # Load the segment in chunks of no_sec_to_load seconds
                         while (
-                            segment_length >= 2 * distance_from_start_and_end + no_sec_to_load 
+                            segment_length
+                            >= 2 * distance_from_start_and_end + no_sec_to_load
                         ):
                             ppg = load_ppg(
                                 segment_metadata,
                                 record_name,
                                 start_seconds=distance_from_start_and_end,
+                                no_sec_to_load=no_sec_to_load,
+                                target_fs=target_fs,
                             )
                             ppg = filter_ppg(ppg, segment_metadata)
 
@@ -309,7 +315,10 @@ def main():
     os.makedirs("data", exist_ok=True)
 
     print("Processing PD data...")
-    pd_signals, pd_labels, pd_patient_ids = load_data("data/waveform_data/PD/", label=1)
+    pd_signals, pd_labels, pd_patient_ids = load_data(
+        "data/waveform_data/PD/",
+        label=1,
+    )
     torch.save((pd_signals, pd_labels, pd_patient_ids), "data/pd_data.pt")
     print(
         f"Saved {len(pd_signals)} PD segments, from {len(set(pd_patient_ids))} patients, each of length 10 seconds"
