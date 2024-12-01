@@ -2,20 +2,21 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import wfdb  # For reading PhysioNet data
 import os
-import scipy.signal as sp
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import minmax_scale
 import numpy as np
 from tqdm import tqdm
+from ppg_utils import load_ppg
+import traceback
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Parts of this code were heavily inspired by this tutorial: https://wfdb.io/mimic_wfdb_tutorials/tutorials.html by Peter H Carlton © Copyright 2022.
+# Parts of this code were inspired by this tutorial: https://wfdb.io/mimic_wfdb_tutorials/tutorials.html by Peter H Carlton © Copyright 2022.
 # The corresponding repository: https://github.com/wfdb/mimic_wfdb_tutorials
 
 
 class PPGDataset(Dataset):
     """
     Custom PyTorch Dataset class for PPG (Photoplethysmography) signals.
-    Implements required methods for PyTorch DataLoader compatibility.
     """
 
     def __init__(self, signals, labels):
@@ -29,66 +30,66 @@ class PPGDataset(Dataset):
         return self.signals[idx], self.labels[idx]
 
 
-def load_ppg(metadata, record_name, start_seconds, no_sec_to_load, target_fs):
+def analyze_and_visualize_metrics(quality_metrics):
     """
-    Loads a no_sec_to_load second segment of PPG signal from a WFDB record.
+    Analyze and visualize the distribution of PPG signal quality metrics using histograms with overlaid density plots.
+
+    This function creates a figure with three subplots, one for each quality metric. Each subplot contains:
+    - A histogram showing the distribution of the metric values
+    - A kernel density estimation (KDE) curve overlaid on the histogram
+    - Key statistical measures (mean, standard deviation, quartiles) in a text box
+
+    The visualization excludes extreme outliers (beyond 3 * IQR from quartiles) to prevent crashes
+    from plotting too many points, while maintaining all data points in the statistical calculations
 
     Args:
-        metadata: WFDB record header containing signal metadata
-        record_name: Name/path of the record to load
-        start_seconds: Starting point in seconds from where to load the signal
-        no_sec_to_load: Number of seconds of signal to load
-        target_fs: Target sampling frequency to resample the signal to
-
-    Returns:
-        numpy array containing the PPG signal segment
+        quality_metrics: Dictionary containing quality metrics (skewness, zero_crossing_rate, matched_peak_detection)
     """
 
-    fs = round(metadata.fs)
+    print("Analyzing signal quality metrics...")
 
-    # Multiply by sampling frequency to get the sample start and end points
-    sampfrom = start_seconds * fs
-    sampto = (start_seconds + no_sec_to_load) * fs
+    # Create subplot for each metric
+    fig, axes = plt.subplots(1, 3, figsize=(15, 10))
+    axes = axes.ravel()
 
-    raw_data = wfdb.rdrecord(record_name=record_name, sampfrom=sampfrom, sampto=sampto)
+    for i, (key, values) in enumerate(quality_metrics.items()):
+        values = np.array(values)
 
-    # Find the index of the PPG signal
-    for sig_no in range(len(raw_data.sig_name)):
-        if "PLETH" in raw_data.sig_name[sig_no]:
-            break
+        # Calculate IQR and bounds for outlier removal
+        q1, q3 = np.percentile(values, [25, 75])
+        iqr = q3 - q1
+        bounds = (q1 - 3 * iqr, q3 + 3 * iqr)
 
-    ppg = raw_data.p_signal[:, sig_no]
+        # Remove outliers only for visualization
+        filtered_values = values[(values >= bounds[0]) & (values <= bounds[1])]
 
-    # Resample the signal to target_fs
-    num_samples = int(len(ppg) * target_fs / fs)
-    ppg = sp.resample(ppg, num_samples)
+        # Plot distribution
+        sns.histplot(filtered_values, kde=True, ax=axes[i])
+        axes[i].set_title(f"{key} Distribution")
 
-    return ppg
+        # Calculate statistics using ALL values
+        stats_text = (
+            f"Mean: {np.mean(values):.3f}\n"
+            f"Std: {np.std(values):.3f}\n"
+            f"25%: {np.percentile(values, 25):.3f}\n"
+            f"50%: {np.percentile(values, 50):.3f}\n"
+            f"75%: {np.percentile(values, 75):.3f}"
+        )
 
+        # Position text box with statistics in upper right corner
+        axes[i].text(
+            0.95,
+            0.95,
+            stats_text,
+            transform=axes[i].transAxes,
+            verticalalignment="top",
+            horizontalalignment="right",
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+        )
 
-def filter_ppg(ppg, target_fs):
-    """
-    Applies bandpass filtering to the PPG signal to remove noise.
-
-    Args:
-        ppg: Raw PPG signal
-        target_fs: Target sampling frequency of the signal
-
-    Returns:
-        Filtered PPG signal
-    """
-
-    lpf_cutoff = 1
-    hpf_cutoff = 15
-
-    sos_ppg = sp.butter(
-        10, [lpf_cutoff, hpf_cutoff], btype="bandpass", output="sos", fs=target_fs
-    )
-
-    # Apply zero-phase filtering
-    ppg_filtered = sp.sosfiltfilt(sos_ppg, ppg)
-
-    return ppg_filtered
+    plt.tight_layout()
+    plt.savefig("quality_metrics_distribution.png")
+    plt.close()
 
 
 def load_data(
@@ -96,7 +97,7 @@ def load_data(
     label,
     required_signals=["PLETH"],
     distance_from_start_and_end=100,
-    no_sec_to_load=10,
+    window_size=10,
     target_fs=50,
 ):
     """
@@ -107,20 +108,25 @@ def load_data(
         label: Label to assign to all signals from this directory (0 or 1)
         required_signals: List of required signal types (default: ["PLETH"])
         distance_from_start_and_end: Number of seconds to skip from the start and end of each segment
-        no_sec_to_load: Number of seconds to load for each segment
+        window_size: Size of each individual PPG window in seconds
         target_fs: Target sampling frequency to resample the signal to
     Returns:
-        Tuple of (signals, labels) as PyTorch tensors
+        Tuple of (signals, labels, patient_ids, quality_metrics)
     """
 
     print("Loading data from " + path_to_data + "\n")
     all_signals = []
     all_labels = []
     all_patient_ids = []  # Track patient IDs for patient-level splits
+    quality_metrics = {
+        "skewness": [],
+        "zero_crossing_rate": [],
+        "matched_peak_detection": [],
+    }  # Track quality metrics for signal analysis
 
     # Find all master header files
     files_to_process = []
-    for dirpath, dirnames, filenames in os.walk(path_to_data):
+    for dirpath, _, filenames in os.walk(path_to_data):
         for file in filenames:
             if "-" in file and not file.endswith("n.hea"):
                 files_to_process.append((dirpath, file))
@@ -151,7 +157,7 @@ def load_data(
                     segment_length = segment_metadata.sig_len / segment_metadata.fs
 
                     minimum_segment_length = (
-                        2 * distance_from_start_and_end + no_sec_to_load
+                        2 * distance_from_start_and_end + window_size
                     )  # distance_from_start_and_end is multiplied by 2 because it is skipped from both start and end
 
                     # Skip if segment is shorter than required length
@@ -162,39 +168,44 @@ def load_data(
 
                     # Check again if all required signals are present because master header doesn't indicate that for all segments it links to
                     if all(x in signals_present for x in required_signals):
-                        # Starting point for loading the segment
+                        # Start and end points for loading the segment
                         start_seconds = distance_from_start_and_end
+                        end_seconds = int(segment_length - distance_from_start_and_end)
+                        windowed_ppg, metrics = load_ppg(
+                            segment_metadata,
+                            record_name,
+                            start_seconds=start_seconds,
+                            end_seconds=end_seconds,
+                            window_size=window_size,
+                            target_fs=target_fs,
+                        )
 
-                        # Load the segment in chunks of no_sec_to_load seconds
-                        while segment_length >= minimum_segment_length:
-                            ppg = load_ppg(
-                                segment_metadata,
-                                record_name,
-                                start_seconds=start_seconds,
-                                no_sec_to_load=no_sec_to_load,
-                                target_fs=target_fs,
+                        if metrics is not None:
+                            quality_metrics["skewness"].append(metrics["skewness"])
+                            quality_metrics["zero_crossing_rate"].append(
+                                metrics["zero_crossing_rate"]
                             )
-                            ppg = filter_ppg(ppg, target_fs)
+                            quality_metrics["matched_peak_detection"].append(
+                                metrics["matched_peak_detection"]
+                            )
 
-                            # Skip if any NaN values are present
-                            if np.isnan(ppg).any():
-                                start_seconds += no_sec_to_load
-                                segment_length -= no_sec_to_load
-                                continue
-
-                            ppg = torch.from_numpy(ppg.copy())
-                            all_signals.append(ppg)
-                            all_labels.append(label)
-                            all_patient_ids.append(patient_id)
-
-                            start_seconds += no_sec_to_load
-                            segment_length -= no_sec_to_load
+                        # Skip if signal is None (due to NaN values or low quality)
+                        if windowed_ppg is not None:
+                            all_signals.extend(windowed_ppg)
+                            all_labels.extend([label] * len(windowed_ppg))
+                            all_patient_ids.extend([patient_id] * len(windowed_ppg))
 
             except Exception as e:
                 print(f"Error loading {segment} from {file[:-4]}: {e}")
+                traceback.print_exc()
                 continue
 
-    return torch.stack(all_signals), torch.tensor(all_labels), all_patient_ids
+    return (
+        torch.stack(all_signals),
+        torch.tensor(all_labels),
+        all_patient_ids,
+        quality_metrics,
+    )
 
 
 def get_dataloaders(cfg):
@@ -242,7 +253,7 @@ def get_dataloaders(cfg):
 def tokenize_signals(signals):
     # Tokenize signals by rounding to nearest integer (Tokens: 0-100)
     scale = 100 * signals
-    return np.round(scale).astype(int)
+    return torch.round(scale).to(torch.int32)
 
 
 def split_by_patient(
@@ -317,9 +328,8 @@ def main():
     os.makedirs("data", exist_ok=True)
 
     print("Processing PD data...")
-    pd_signals, pd_labels, pd_patient_ids = load_data(
-        "data/waveform_data/PD/",
-        label=1,
+    pd_signals, pd_labels, pd_patient_ids, pd_quality_metrics = load_data(
+        "data/waveform_data/PD/", label=1
     )
     torch.save((pd_signals, pd_labels, pd_patient_ids), "data/pd_data.pt")
     print(
@@ -327,15 +337,26 @@ def main():
     )
 
     print("Processing non-PD data...")
-    non_pd_signals, non_pd_labels, non_pd_patient_ids = load_data(
-        "data/waveform_data/non_PD/", label=0
+    non_pd_signals, non_pd_labels, non_pd_patient_ids, non_pd_quality_metrics = (
+        load_data("data/waveform_data/non_PD/", label=0)
     )
     torch.save(
-        (non_pd_signals, non_pd_labels, non_pd_patient_ids), "data/non_pd_data.pt"
+        (non_pd_signals, non_pd_labels, non_pd_patient_ids),
+        "data/non_pd_data.pt",
     )
     print(
         f"Saved {len(non_pd_signals)} non-PD segments, from {len(set(non_pd_patient_ids))} patients, each of length 10 seconds"
     )
+
+    quality_metrics = {
+        "skewness": pd_quality_metrics["skewness"] + non_pd_quality_metrics["skewness"],
+        "zero_crossing_rate": pd_quality_metrics["zero_crossing_rate"]
+        + non_pd_quality_metrics["zero_crossing_rate"],
+        "matched_peak_detection": pd_quality_metrics["matched_peak_detection"]
+        + non_pd_quality_metrics["matched_peak_detection"],
+    }
+    torch.save(quality_metrics, "data/quality_metrics.pt")
+    analyze_and_visualize_metrics(quality_metrics)
 
     # Concatenate PD and non-PD data
     all_signals = torch.cat([pd_signals, non_pd_signals])
@@ -343,18 +364,23 @@ def main():
     all_patient_ids = pd_patient_ids + non_pd_patient_ids
 
     # Clear memory
-    del pd_signals, pd_labels, non_pd_signals, non_pd_labels
+    del (
+        pd_signals,
+        pd_labels,
+        pd_patient_ids,
+        pd_quality_metrics,
+        non_pd_signals,
+        non_pd_labels,
+        non_pd_patient_ids,
+        non_pd_quality_metrics,
+        quality_metrics,
+    )
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-    print("Normalizing and scaling data...")
-    normalized_signals = (all_signals - all_signals.mean(dim=1, keepdim=True)) / (
-        all_signals.std(dim=1, keepdim=True) + 1e-8
-    )
-    scaled_signals = minmax_scale(normalized_signals, (0, 1), axis=1)
-    tokenized_signals = tokenize_signals(scaled_signals)
+    tokenized_signals = tokenize_signals(all_signals)
 
     # Clear memory
-    del normalized_signals, all_signals, scaled_signals
+    del all_signals
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
     # Split data by patient
