@@ -10,6 +10,23 @@ To use this script, you must:
 
 For more information about MIMIC-III access requirements:
 https://physionet.org/content/mimiciii/
+
+Johnson, A., Pollard, T., & Mark, R. (2016). 
+MIMIC-III Clinical Database (version 1.4). 
+PhysioNet. https://doi.org/10.13026/C2XW26.
+
+Moody, B., Moody, G., Villarroel, M., Clifford, G. D., & Silva, I. (2020). 
+MIMIC-III Waveform Database (version 1.0). 
+PhysioNet. https://doi.org/10.13026/c2607m.
+
+Johnson, A., Pollard, T., Shen, L. et al. 
+MIMIC-III, a freely accessible critical care database. 
+Sci Data 3, 160035 (2016). 
+https://doi.org/10.1038/sdata.2016.35
+
+Goldberger, A., Amaral, L., Glass, L., Hausdorff, J., Ivanov, P. C., Mark, R., ... & Stanley, H. E. (2000). 
+PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex physiologic signals. 
+Circulation [Online]. 101 (23), pp. e215–e220.
 """
 
 import pandas as pd
@@ -199,7 +216,7 @@ def main():
     """
 
     # Process clinical data and match patients
-    non_pd, pd, pd_subject_ids = read_data()
+    non_pd, pd, pd_subject_ids = read_data() # Input the path to your MIMIC-III clinical database directory here
     non_pd, non_pd_subject_ids = match_healthy_to_PD(non_pd, pd)
 
     total_patients = len(pd_subject_ids) + len(non_pd_subject_ids)

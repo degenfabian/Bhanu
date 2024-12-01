@@ -11,8 +11,10 @@ from metrics import BinaryClassificationMetrics
 The values for the Config class and large parts of the main function were taken from: 
 https://github.com/harryjdavies/HeartGPT/blob/main/HeartGPT_finetuning.py
 
-Check out the paper by Davies et al. (2024) "Interpretable Pre-Trained Transformers for Heart Time-Series Data" 
-available at https://arxiv.org/abs/2407.20775 to find out more about their amazing work!
+Davies, H. J., Monsen, J., & Mandic, D. P. (2024). 
+Interpretable Pre-Trained Transformers for Heart Time-Series Data.
+arXiv [Cs.LG]. 
+Retrieved from http://arxiv.org/abs/2407.20775
 """
 
 

@@ -11,8 +11,10 @@ https://github.com/harryjdavies/HeartGPT/blob/main/HeartGPT_finetuning.py
 Which builds on Andrej Karpathy's transformer implementation:
 https://github.com/karpathy/ng-video-lecture
 
-Paper: Davies et al. (2024) "Interpretable Pre-Trained Transformers for Heart Time-Series Data" 
-https://arxiv.org/abs/2407.20775
+Davies, H. J., Monsen, J., & Mandic, D. P. (2024). 
+Interpretable Pre-Trained Transformers for Heart Time-Series Data.
+arXiv [Cs.LG]. 
+Retrieved from http://arxiv.org/abs/2407.20775
 """
 
 
