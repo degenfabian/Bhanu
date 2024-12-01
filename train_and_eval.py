@@ -44,11 +44,11 @@ class Config:
         loss_function (nn.Module): Loss function
     """
 
-    save_interval = 5
+    save_interval = 1
     epochs = 100
     prediction_threshold = 0.5
     early_stopping_threshold = 15
-    batch_size = 512
+    batch_size = 384
     num_workers = 4
     pin_memory = True
     persistent_workers = True
@@ -59,7 +59,7 @@ class Config:
     n_layer = 8
     dropout = 0.2
     learning_rate = 3e-04
-    blocks_to_unfreeze = 4
+    blocks_to_unfreeze = 5
     vocab_size = 102
     device = (
         "cuda"
