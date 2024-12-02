@@ -107,10 +107,11 @@ def evaluate(cfg, model, data_loader, metrics):
                 nn.functional.sigmoid(output) > cfg.prediction_threshold
             ).float()
             metrics.update_metrics(prediction, label)
-
-    print(metrics.__str__())
-
     avg_loss = total_loss / len(data_loader)
+
+    # Print evaluation metrics
+    print(f"Loss: {avg_loss}")
+    print(metrics.__str__())
 
     return avg_loss
 
@@ -255,7 +256,7 @@ def train(
             val_metrics = BinaryClassificationMetrics(0, 0, 0, 0)
 
             # Print validation metrics
-            print("Validation metrics: \n")
+            print(f"Validation metrics for epoch {epoch}: \n")
             val_loss = evaluate(cfg, model, val_loader, val_metrics)
 
             # Calculate and store all validation metrics
