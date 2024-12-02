@@ -316,6 +316,8 @@ def test(cfg, model, test_loader):
     model.load_state_dict(checkpoint["model"])
     test_metrics = BinaryClassificationMetrics(0, 0, 0, 0)
 
+    print(f"Testing model trained for {checkpoint['epoch']} epochs\n")
+
     # Print test metrics
     print("Testing metrics: \n")
     evaluate(cfg, model, test_loader, test_metrics)
