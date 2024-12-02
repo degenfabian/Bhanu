@@ -50,7 +50,7 @@ class Config:
     epochs = 100
     prediction_threshold = 0.5
     early_stopping_threshold = 15
-    batch_size = 384
+    batch_size = 512
     num_workers = 4
     pin_memory = True
     persistent_workers = True
@@ -61,7 +61,7 @@ class Config:
     n_layer = 8
     dropout = 0.2
     learning_rate = 3e-04
-    blocks_to_unfreeze = 5
+    blocks_to_unfreeze = 1
     vocab_size = 102
     device = (
         "cuda"
