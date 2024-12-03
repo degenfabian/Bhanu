@@ -423,7 +423,7 @@ def plot_ppg(ppg, fs):
     Returns:
         None: Displays matplotlib plot
     """
-    time = np.arange(len(ppg)) / fs * 1000 # Time in milliseconds
+    time = np.arange(len(ppg)) / fs * 1000  # Time in milliseconds
 
     plt.figure()
     plt.plot(time, ppg)
