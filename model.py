@@ -91,26 +91,7 @@ class Block(nn.Module):
 class ClassificationHead(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.classifier = nn.Sequential(
-            nn.LayerNorm(cfg.n_embd),
-            nn.Linear(cfg.n_embd, 128),
-            nn.GELU(),
-            nn.Dropout(cfg.dropout),
-            nn.BatchNorm1d(128),
-            nn.Linear(128, 256),
-            nn.GELU(),
-            nn.Dropout(cfg.dropout),
-            nn.BatchNorm1d(256),
-            nn.Linear(256, 128),
-            nn.GELU(),
-            nn.Dropout(cfg.dropout),
-            nn.BatchNorm1d(128),
-            nn.Linear(128, 64),
-            nn.GELU(),
-            nn.Dropout(cfg.dropout),
-            nn.BatchNorm1d(64),
-            nn.Linear(64, 1),
-        )
+        self.classifier = nn.Linear(64, 1)
 
     def forward(self, x):
         x = x[:, -1, :]  # Take last token for classification
