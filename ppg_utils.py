@@ -407,3 +407,27 @@ def load_ppg(
     windowed_signals = [torch.from_numpy(window.copy()) for window in windows]
 
     return windowed_signals, metrics
+
+
+def plot_ppg(ppg, fs):
+    """
+    Visualize PPG signal with time on x-axis and amplitude on y-axis.
+
+    Implementation based on the WFDB tutorial by Peter H Carlton (2022)
+    https://wfdb.io/mimic_wfdb_tutorials/tutorial/notebooks/differentiation.html
+
+    Args:
+        ppg: PPG signal
+        fs: Sampling frequency of the signal
+
+    Returns:
+        None: Displays matplotlib plot
+    """
+    time = np.arange(len(ppg)) / fs * 1000 # Time in milliseconds
+
+    plt.figure()
+    plt.plot(time, ppg)
+    plt.xlabel("Time (ss)")
+    plt.ylabel("Amplitude")
+    plt.title("PPG Signal")
+    plt.show()
