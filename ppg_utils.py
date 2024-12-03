@@ -2,6 +2,7 @@ import numpy as np
 import scipy.signal as sp
 import torch
 import wfdb
+from matplotlib import pyplot as plt
 from sklearn.preprocessing import minmax_scale
 from vital_sqi.sqi.standard_sqi import skewness_sqi, zero_crossings_rate_sqi
 
@@ -52,7 +53,7 @@ def find_peaks_ppg_li(ppg, fs):
 
     # Amplitude threshold calculation
     amplitude_thresholds = np.array([np.ptp(division) for division in ppg_divisions])
-    amplitude_threshold = np.median(amplitude_thresholds) * 0.6
+    amplitude_threshold = np.mean(amplitude_thresholds)
 
     # Interval threshold calculation
     interval_thresholds = []
@@ -60,46 +61,49 @@ def find_peaks_ppg_li(ppg, fs):
         zero_crossings = np.nonzero(np.diff(np.signbit(der_division)))[0]
         if len(zero_crossings) >= 2:
             intervals = np.diff(zero_crossings)
-            interval_thresholds.append(np.median(intervals))
+            interval_thresholds.append(np.mean(intervals))
 
     interval_threshold = (
-        np.median(interval_thresholds) if interval_thresholds else 0.5 * fs
+        np.mean(interval_thresholds) if interval_thresholds else 0.5 * fs
     )
-
-    # Find peak candidates (zero-crossings of first derivative with negative slope)
-    peak_candidates = np.nonzero((derivative[:-1] > 0) & (derivative[1:] <= 0))[0]
-
-    # Use boolean array for faster maximal inflection lookup
-    inflection_mask = np.zeros(signal_length, dtype=bool)
-    inflection_mask[maximal_inflections] = True
 
     # Peak detection using zero-crossings after maximal inflections
     peaks = []
     last_peak = -interval_threshold  # Initialize with negative interval
 
-    for i in peak_candidates:
-        # Skip if too close to last peak
-        if i - last_peak < interval_threshold:
+    # Iterate through maximal inflections
+    for inflection_idx in maximal_inflections:
+        # Look for zero crossing in derivative within 200ms window after maximal inflection
+        search_end = min(signal_length - 1, inflection_idx + ms_200)
+        zero_crossings = np.nonzero(
+            (derivative[inflection_idx : search_end - 1] > 0)
+            & (derivative[inflection_idx + 1 : search_end] <= 0)
+        )[0]
+
+        # Skip if no zero-crossings found
+        if len(zero_crossings) == 0:
             continue
 
-        # Find nearest maximal inflection to the left of the peak candidate
-        prev_inflections = maximal_inflections[maximal_inflections < i]
-        if len(prev_inflections) == 0:
-            continue
+        # Take the first zero-crossing as peak candidate
+        peak_candidate = inflection_idx + zero_crossings[0]
 
-        nearest_inflection = prev_inflections[-1]
-
-        # Verify this zero-crossing is soon after the maximal inflection (200ms window)
-        if not (0 < i - nearest_inflection < ms_200):
+        # Skip if too close to last detected peak
+        if peak_candidate - last_peak < interval_threshold:
             continue
 
         # Find local maximum (systolic peak) in vicinity of zero-crossing (50ms window)
-        start_search = max(0, i - ms_50)
-        end_search = min(signal_length, i + ms_50)
+        start_search = max(0, peak_candidate - ms_50)
+        end_search = min(signal_length, peak_candidate + ms_50)
         local_max_idx = start_search + np.argmax(ppg[start_search:end_search])
 
-        # Calculate peak amplitude relative to preceding minimum (300ms window)
+        # Calculate lower bound for searching minimum that precedes the potential peak (300ms window)
         search_min = max(0, local_max_idx - ms_300)
+
+        # Skip if there is no minimum before the peak
+        if local_max_idx <= search_min:
+            continue
+
+        # Calculate peak amplitude relative to preceding minimum
         peak_amplitude = ppg[local_max_idx] - np.min(ppg[search_min:local_max_idx])
 
         # Check if peak amplitude exceeds threshold
@@ -113,7 +117,7 @@ def find_peaks_ppg_li(ppg, fs):
     return np.array(peaks)
 
 
-def find_peaks_ppg_billauer(ppg, delta=0.25):
+def find_peaks_ppg_billauer(ppg, delta=0.5):
     """
     Find peaks and valleys in a PPG signal using Billauer's peak detection algorithm.
 
@@ -130,7 +134,7 @@ def find_peaks_ppg_billauer(ppg, delta=0.25):
         ppg: PPG signal
         delta (float, optional): Minimum difference in amplitude required to detect
             a peak or valley. Higher values are more restrictive and detect fewer
-            peaks. Defaults to 0.25.
+            peaks. Defaults to 0.5.
 
     Returns:
         tuple: Two numpy arrays containing:
@@ -389,7 +393,7 @@ def load_ppg(
 
     # Create windows of PPG signal
     window_samples = int(window_size * target_fs)  # Number of samples in each window
-    stride = int(0.1 * window_samples)  # Stride in samples (90% overlap)
+    stride = int(1 * window_samples)  # Stride in samples (60% overlap)
 
     # Calculate number of windows
     n_windows = ((len(resampled_ppg) - window_samples) // stride) + 1
