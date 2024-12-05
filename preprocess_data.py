@@ -10,10 +10,9 @@ import traceback
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+
 # Parts of this code were inspired by this tutorial: https://wfdb.io/mimic_wfdb_tutorials/tutorials.html by Peter H Carlton © Copyright 2022.
 # The corresponding repository: https://github.com/wfdb/mimic_wfdb_tutorials
-
-
 class PPGDataset(Dataset):
     """
     Custom PyTorch Dataset class for PPG (Photoplethysmography) signals.
@@ -313,6 +312,19 @@ def split_by_patient(
     train_signals, train_labels = signals[train_indices], labels[train_indices]
     val_signals, val_labels = signals[val_indices], labels[val_indices]
     test_signals, test_labels = signals[test_indices], labels[test_indices]
+
+    for split_name, labels in [
+        ("Train", train_labels),
+        ("Validation", val_labels),
+        ("Test", test_labels),
+    ]:
+        total = len(labels)
+        pd_count = labels.sum().item()
+        non_pd_count = total - pd_count
+        print(f"\n{split_name} set:")
+        print(f"Total: {total}")
+        print(f"PD: {pd_count} ({pd_count/total*100:.1f}%)")
+        print(f"Non-PD: {non_pd_count} ({non_pd_count/total*100:.1f}%)")
 
     return (
         train_signals,
