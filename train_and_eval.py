@@ -59,8 +59,9 @@ class Config:
     n_embd = 64
     n_head = 8
     n_layer = 8
-    dropout = 0.2
-    learning_rate = 3e-04
+    dropout = 0.4
+    learning_rate = 1e-05
+    weight_decay = 0.01
     blocks_to_unfreeze = 1
     vocab_size = 102
     device = (
@@ -237,7 +238,7 @@ def train(
             train_metrics.update_metrics(prediction, label)
 
         avg_loss = training_loss / len(train_loader)
-        current_lr = optimizer.param_groups[0]["lr"]
+        current_lr = optimizer.param_groups[0]["lr"]  # TODO remove this
 
         # Print training metrics
         print(f"Training metrics for epoch {epoch}: \n")
@@ -372,7 +373,9 @@ def main():
             param.requires_grad = True
 
     # Setup training
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay
+    )
 
     train_loader, val_loader, test_loader = get_dataloaders(cfg)
 
