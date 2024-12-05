@@ -111,7 +111,9 @@ def evaluate(cfg, model, data_loader, metrics):
 
             # Apply sigmoid to get probabilities
             raw_prediction = nn.functional.sigmoid(output)
-            metrics.track_batch_results(cfg, raw_prediction, label) # Update internal metric counters
+            metrics.track_batch_results(
+                cfg, raw_prediction, label
+            )  # Update internal metric counters
 
     avg_loss = total_loss / len(data_loader)
 
@@ -246,7 +248,7 @@ def train(
                 loss = cfg.loss_function(output, label)
 
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer) # Unscales gradients for clipping
+            scaler.unscale_(optimizer)  # Unscales gradients for clipping
 
             # Gradient clipping
             nn.utils.clip_grad_norm_(
@@ -260,12 +262,16 @@ def train(
 
             # Apply sigmoid before thresholding for predictions
             raw_prediction = nn.functional.sigmoid(output)
-            train_metrics.track_batch_results(cfg, raw_prediction, label) # Update internal metric counters
+            train_metrics.track_batch_results(
+                cfg, raw_prediction, label
+            )  # Update internal metric counters
 
         avg_loss = training_loss / len(train_loader)
 
         print(f"Training metrics for epoch {epoch}: \n")
-        train_metrics.calculate_and_print_epoch_metrics(avg_loss) # Calculate and print training metrics
+        train_metrics.calculate_and_print_epoch_metrics(
+            avg_loss
+        )  # Calculate and print training metrics
 
         # Validation phase
         if val_loader is not None:
@@ -274,7 +280,9 @@ def train(
             evaluate(cfg, model, val_loader, val_metrics)
 
             current_auc_roc = val_metrics.get_current_auc_roc()
-            scheduler.step(current_auc_roc) # Adjust learning rate based on validation AUC-ROC
+            scheduler.step(
+                current_auc_roc
+            )  # Adjust learning rate based on validation AUC-ROC
 
             # Save best model based on AUC-ROC
             if current_auc_roc > best_auc_roc:
