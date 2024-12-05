@@ -121,7 +121,7 @@ class BinaryClassificationMetrics:
         self.reset()
 
         # Print metrics for the epoch
-        self.__str__()
+        print(self.__str__())
 
     def get_current_auc_roc(self):
         return self.auc_roc[-1]
