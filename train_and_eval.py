@@ -269,7 +269,7 @@ def train(
         avg_loss = training_loss / len(train_loader)
 
         print(f"Training metrics for epoch {epoch}: \n")
-        train_metrics.calculate_and_print_epoch_metrics(
+        train_metrics.calculate_and_print_metrics(
             avg_loss
         )  # Calculate and print training metrics
 
