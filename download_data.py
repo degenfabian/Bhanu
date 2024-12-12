@@ -251,8 +251,8 @@ def print_dataset_statistics(
     print(f"Mean age:   {pd_age['mean']:6.1f}  {control_age['mean']:6.1f}")
     print(f"Std dev:    {pd_age['std']:6.1f}  {control_age['std']:6.1f}")
     print(f"Median age: {pd_age['50%']:6.1f}  {control_age['50%']:6.1f}")
-    print(f"Min age:      {pd_age['min']:6.1f}  {control_age['min']:6.1f}")
-    print(f"Max age:      {pd_age['max']:6.1f}  {control_age['max']:6.1f}")
+    print(f"Min age:    {pd_age['min']:6.1f}  {control_age['min']:6.1f}")
+    print(f"Max age:    {pd_age['max']:6.1f}  {control_age['max']:6.1f}")
 
     # Gender statistics
     pd_gender = pd_patient_data["GENDER"].value_counts(normalize=True) * 100
@@ -260,8 +260,8 @@ def print_dataset_statistics(
 
     print("\nGender Distribution (%):")
     print("              PD      Controls")
-    print(f"Female:      {pd_gender['F']:6.1f}  {control_gender['F']:6.1f}")
-    print(f"Male:        {pd_gender['M']:6.1f}  {control_gender['M']:6.1f}")
+    print(f"Female:     {pd_gender['F']:6.1f}  {control_gender['F']:6.1f}")
+    print(f"Male:       {pd_gender['M']:6.1f}  {control_gender['M']:6.1f}")
 
 
 def main():
