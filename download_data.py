@@ -36,6 +36,7 @@ from tqdm import tqdm
 import numpy as np
 from scipy.spatial.distance import cdist
 from sklearn.preprocessing import StandardScaler
+import shutil
 
 
 def read_data(mimic_path):
@@ -229,9 +230,7 @@ def print_dataset_statistics(
 
     # Map gender back to string values for better readability
     pd_patient_data["GENDER"] = pd_patient_data["GENDER"].map({1: "M", 0: "F"})
-    non_pd_patient_data["GENDER"] = non_pd_patient_data["GENDER"].map(
-        {1: "M", 0: "F"}
-    )
+    non_pd_patient_data["GENDER"] = non_pd_patient_data["GENDER"].map({1: "M", 0: "F"})
 
     # Every patient aged over 89 is set to 300 in MIMIC-III for privacy reasons
     # I set them back to 90 in order for the statistic calculations carried out later to be more accurate
@@ -314,6 +313,9 @@ def main():
             ):
                 downloaded_non_pd_patient_ids.append(non_pd_subject_id)
                 break
+
+    # Subset the data to only include patients that were successfully downloaded
+    # for calculating dataset statistics
 
     downloaded_pd_data = pd_patient_data[
         pd_patient_data["SUBJECT_ID"].isin(downloaded_pd_patient_ids)
