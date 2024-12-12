@@ -98,7 +98,6 @@ def analyze_and_visualize_metrics(quality_metrics):
 def load_data(
     path_to_data,
     label,
-    required_signals=["PLETH"],
     distance_from_start_and_end=100,
     window_size=10,
     target_fs=50,
@@ -108,8 +107,7 @@ def load_data(
 
     Args:
         path_to_data: Directory containing the WFDB records
-        label: Label to assign to all signals from this directory (0 or 1)
-        required_signals: List of required signal types (default: ["PLETH"])
+        label: Label to assign to all signals from this directory (1 for PD, 0 for non-PD)
         distance_from_start_and_end: Number of seconds to skip from the start and end of each segment
         window_size: Size of each individual PPG window in seconds
         target_fs: Target sampling frequency to resample the signal to
@@ -146,12 +144,11 @@ def load_data(
                     record_name=os.path.join(dirpath, file[:-4]), rd_segments=True
                 )
 
-                # Skip if signal doesn't contain required signals
-                if not all(x in record_data.sig_name for x in required_signals):
+                # Skip if none of the segments master header links to contain PPG data
+                if not "PLETH" in record_data.sig_name:
                     continue
 
                 segments = record_data.seg_name
-
                 # Skip empty segments denoted by "~"
                 non_empty_segments = [segment for segment in segments if segment != "~"]
 
@@ -170,20 +167,23 @@ def load_data(
 
                     signals_present = segment_metadata.sig_name
 
-                    # Check again if all required signals are present because master header doesn't indicate that for all segments it links to
-                    if all(x in signals_present for x in required_signals):
+                    # Check again if PPG data is present in current segment because master header only indicates presence in at least one segment
+                    if "PLETH" in signals_present:
                         # Start and end points for loading the segment
                         start_seconds = distance_from_start_and_end
                         end_seconds = int(segment_length - distance_from_start_and_end)
+
                         windowed_ppg, metrics = load_ppg(
                             segment_metadata,
                             record_name,
-                            start_seconds=start_seconds,
-                            end_seconds=end_seconds,
-                            window_size=window_size,
-                            target_fs=target_fs,
+                            label,
+                            start_seconds,
+                            end_seconds,
+                            window_size,
+                            target_fs,
                         )
 
+                        # Append quality metrics for this signal if available for quality metric tracking
                         if metrics is not None:
                             quality_metrics["skewness"].append(metrics["skewness"])
                             quality_metrics["zero_crossing_rate"].append(
