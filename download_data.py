@@ -112,9 +112,9 @@ def match_healthy_to_PD(
                     in case download for control patient fails
 
     Returns:
-        tuple: (matched_controls, control_subject_ids)
-            - matched_controls: DataFrame of matched control patients
-            - control_subject_ids: Array of matched control subject IDs
+        dict: matched_non_pd_with_backups
+            Dictionary mapping PD patient indices to arrays of matched control subject IDs,
+            including backup matches
     """
 
     # Map Gender information to integers
@@ -137,7 +137,7 @@ def match_healthy_to_PD(
 
     # Match each PD patient with the closest unmatched control patient
     matched_indices = set()
-    matched_controls_with_backups = {}
+    matched_non_pd_with_backups = {}
     matches_needed = n_fallback + 1  # Primary match + backup matches
 
     for i in range(len(pd_patient_data)):
@@ -153,11 +153,11 @@ def match_healthy_to_PD(
                 potential_matches.append(j)
                 matched_indices.add(j)
         # Store IDs of the matched control patients and their backups
-        matched_controls_with_backups[i] = non_pd_patient_data.iloc[potential_matches][
+        matched_non_pd_with_backups[i] = non_pd_patient_data.iloc[potential_matches][
             "SUBJECT_ID"
         ].to_numpy()
 
-    return matched_controls_with_backups
+    return matched_non_pd_with_backups
 
 
 def download_patient_waveforms(subject_id, target_dir="/data/waveform_data/"):
@@ -244,24 +244,24 @@ def print_dataset_statistics(
 
     # Age statistics
     pd_age = pd_patient_data["AGE"].describe()
-    control_age = non_pd_patient_data["AGE"].describe()
+    non_pd_age = non_pd_patient_data["AGE"].describe()
 
     print("\nAge Statistics:")
     print("              PD      Controls")
-    print(f"Mean age:   {pd_age['mean']:6.1f}  {control_age['mean']:6.1f}")
-    print(f"Std dev:    {pd_age['std']:6.1f}  {control_age['std']:6.1f}")
-    print(f"Median age: {pd_age['50%']:6.1f}  {control_age['50%']:6.1f}")
-    print(f"Min age:    {pd_age['min']:6.1f}  {control_age['min']:6.1f}")
-    print(f"Max age:    {pd_age['max']:6.1f}  {control_age['max']:6.1f}")
+    print(f"Mean age:   {pd_age['mean']:6.1f}  {non_pd_age['mean']:6.1f}")
+    print(f"Std dev:    {pd_age['std']:6.1f}  {non_pd_age['std']:6.1f}")
+    print(f"Median age: {pd_age['50%']:6.1f}  {non_pd_age['50%']:6.1f}")
+    print(f"Min age:    {pd_age['min']:6.1f}  {non_pd_age['min']:6.1f}")
+    print(f"Max age:    {pd_age['max']:6.1f}  {non_pd_age['max']:6.1f}")
 
     # Gender statistics
     pd_gender = pd_patient_data["GENDER"].value_counts(normalize=True) * 100
-    control_gender = non_pd_patient_data["GENDER"].value_counts(normalize=True) * 100
+    non_pd_gender = non_pd_patient_data["GENDER"].value_counts(normalize=True) * 100
 
     print("\nGender Distribution (%):")
     print("              PD      Controls")
-    print(f"Female:     {pd_gender['F']:6.1f}  {control_gender['F']:6.1f}")
-    print(f"Male:       {pd_gender['M']:6.1f}  {control_gender['M']:6.1f}")
+    print(f"Female:     {pd_gender['F']:6.1f}  {non_pd_gender['F']:6.1f}")
+    print(f"Male:       {pd_gender['M']:6.1f}  {non_pd_gender['M']:6.1f}")
 
 
 def main():
