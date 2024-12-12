@@ -340,18 +340,22 @@ def filter_ppg(ppg, fs):
 def load_ppg(
     metadata,
     record_name,
+    label,
     start_seconds,
     end_seconds,
     window_size,
     target_fs,
 ):
     """
-    Loads a no_sec_to_load second segment of PPG signal from a WFDB record. # TODO
+    Loads a window_size second segment of PPG signal from a WFDB record.
     The signal is bandpass filtered and resampled to target_fs.
+    Signals are filtered according certain PPG quality indices (see assess_ppg_quality).
+    A sliding window of 1 second (9 second overlap for default window size of 10 seconds) is used to augment the dataset.
 
     Args:
         metadata: WFDB record header containing signal metadata
         record_name: Name/path of the record to load
+        label: Label whether the signal is from patient with PD or control (1 for PD, 0 for non-PD)
         start_seconds: Starting point in seconds from where to load the signal
         end_seconds: Ending point in seconds until the signal is to be loaded
         window_size: Size of individual PPG window in seconds
@@ -384,29 +388,26 @@ def load_ppg(
 
     filtered_ppg = filter_ppg(raw_ppg, original_fs)
 
-    # Resample the signal to target_fs
-    num_samples = int(len(filtered_ppg) * target_fs / original_fs)
-    resampled_ppg = sp.resample(filtered_ppg, num_samples)
-
-    is_high_quality, metrics = assess_ppg_quality(resampled_ppg, target_fs)
+    is_high_quality, metrics = assess_ppg_quality(raw_ppg, filtered_ppg, original_fs)
 
     # Return None if signal quality is low to exclude signal, but still return metrics for tracking
     if not is_high_quality:
         return None, metrics
 
-    # normalize the signal
-    resampled_ppg = (resampled_ppg - np.mean(resampled_ppg)) / (
-        np.std(resampled_ppg) + 1e-8
-    )
+    # Resample the signal to target_fs
+    num_samples = int(len(filtered_ppg) * target_fs / original_fs)
+    resampled_ppg = sp.resample(filtered_ppg, num_samples)
 
     # Rescaling the signal to [0, 1] is required for tokenization approach
     resampled_ppg = minmax_scale(resampled_ppg, feature_range=(0, 1))
 
     # Create windows of PPG signal
     window_samples = int(window_size * target_fs)  # Number of samples in each window
-    stride = int(1 * window_samples)  # Stride in samples (60% overlap)
 
-    # Calculate number of windows
+    # 1 second window for PD, 1.5 second window for non-PD to have approximately same number of windows
+    sliding_window_size = 1 if label == 1 else 1.5
+
+    stride = int(sliding_window_size * target_fs)  # Size of sliding window in samples
     n_windows = ((len(resampled_ppg) - window_samples) // stride) + 1
 
     # Create sliding windows
