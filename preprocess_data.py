@@ -48,7 +48,7 @@ def analyze_and_visualize_metrics(quality_metrics):
     print("Analyzing signal quality metrics...")
 
     # Create subplot for each metric
-    fig, axes = plt.subplots(1, 3, figsize=(15, 10))
+    fig, axes = plt.subplots(1, 4, figsize=(15, 10))
     axes = axes.ravel()
 
     for i, (key, values) in enumerate(quality_metrics.items()):
@@ -86,8 +86,12 @@ def analyze_and_visualize_metrics(quality_metrics):
             bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
         )
 
+    plots_dir = "plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    plot_path = os.path.join(plots_dir, f"quality_metrics_distribution.png")
+
     plt.tight_layout()
-    plt.savefig("quality_metrics_distribution.png")
+    plt.savefig(plot_path)
     plt.close()
 
 
@@ -121,6 +125,7 @@ def load_data(
         "skewness": [],
         "zero_crossing_rate": [],
         "matched_peak_detection": [],
+        "perfusion_index": [],
     }  # Track quality metrics for signal analysis
 
     # Find all master header files
@@ -186,6 +191,9 @@ def load_data(
                             )
                             quality_metrics["matched_peak_detection"].append(
                                 metrics["matched_peak_detection"]
+                            )
+                            quality_metrics["perfusion_index"].append(
+                                metrics["perfusion_index"]
                             )
 
                         # Skip if signal is None (due to NaN values or low quality)
@@ -343,6 +351,7 @@ def main():
     pd_signals, pd_labels, pd_patient_ids, pd_quality_metrics = load_data(
         "data/waveform_data/PD/", label=1
     )
+
     torch.save((pd_signals, pd_labels, pd_patient_ids), "data/pd_data.pt")
     print(
         f"Saved {len(pd_signals)} PD segments, from {len(set(pd_patient_ids))} patients, each of length 10 seconds"
@@ -366,6 +375,8 @@ def main():
         + non_pd_quality_metrics["zero_crossing_rate"],
         "matched_peak_detection": pd_quality_metrics["matched_peak_detection"]
         + non_pd_quality_metrics["matched_peak_detection"],
+        "perfusion_index": pd_quality_metrics["perfusion_index"]
+        + non_pd_quality_metrics["perfusion_index"],
     }
     torch.save(quality_metrics, "data/quality_metrics.pt")
     analyze_and_visualize_metrics(quality_metrics)

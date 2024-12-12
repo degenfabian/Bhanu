@@ -2,6 +2,7 @@ import numpy as np
 import scipy.signal as sp
 import torch
 import wfdb
+import os
 from matplotlib import pyplot as plt
 from pathlib import Path
 from sklearn.preprocessing import minmax_scale
@@ -275,7 +276,7 @@ def assess_ppg_quality(raw_ppg, filtered_ppg, fs):
     2. Zero crossing rate (Z_SQI)
     3. Matching of multiple systolic wave detection algorithms (M_SQI)
 
-    Additionally, I am also using the gold standard for assessing the quality of PPG signals: the Perfusion Index 
+    Additionally, I am also using the gold standard for assessing the quality of PPG signals: the Perfusion Index
 
     Args:
         raw_ppg: Raw PPG signal
@@ -464,5 +465,5 @@ def plot_ppg(ppg, fs, filename, metrics):
         bbox=dict(facecolor="white", alpha=0.8),
     )
 
-    plt.savefig(plot_path, bbox_inches='tight')
+    plt.savefig(plot_path, bbox_inches="tight")
     plt.close()
