@@ -207,6 +207,59 @@ def download_patient_waveforms(subject_id, target_dir="/data/waveform_data/"):
         return False
 
 
+def print_dataset_statistics(
+    pd_patient_data,
+    non_pd_patient_data,
+):
+    """
+    Prints statistics about the dataset including demographics and download status.
+
+    Args:
+        pd_patient_data: DataFrame containing Parkinson's disease patient data
+        non_pd_patient_data: DataFrame containing control patient data
+
+    Returns:
+        None
+    """
+
+    # Map gender back to string values for better readability
+    pd_patient_data["GENDER"] = pd_patient_data["GENDER"].map({1: "M", 0: "F"})
+    non_pd_patient_data["GENDER"] = non_pd_patient_data["GENDER"].map(
+        {1: "M", 0: "F"}
+    )
+
+    # Every patient aged over 89 is set to 300 in MIMIC-III for privacy reasons
+    # I set them back to 90 in order for the statistic calculations carried out later to be more accurate
+    pd_patient_data.loc[pd_patient_data["AGE"] == 300, "AGE"] = 90
+    non_pd_patient_data.loc[non_pd_patient_data["AGE"] == 300, "AGE"] = 90
+
+    print(f"\nDownload statistics:")
+    print(f"PD patients: {len(pd_patient_data)}")
+    print(f"Control patients: {len(non_pd_patient_data)}")
+    print(f"Total: {len(pd_patient_data) + len(non_pd_patient_data)}")
+
+    # Age statistics
+    pd_age = pd_patient_data["AGE"].describe()
+    control_age = non_pd_patient_data["AGE"].describe()
+
+    print("\nAge Statistics:")
+    print("              PD      Controls")
+    print(f"Mean age:   {pd_age['mean']:6.1f}  {control_age['mean']:6.1f}")
+    print(f"Std dev:    {pd_age['std']:6.1f}  {control_age['std']:6.1f}")
+    print(f"Median age: {pd_age['50%']:6.1f}  {control_age['50%']:6.1f}")
+    print(f"Min age:      {pd_age['min']:6.1f}  {control_age['min']:6.1f}")
+    print(f"Max age:      {pd_age['max']:6.1f}  {control_age['max']:6.1f}")
+
+    # Gender statistics
+    pd_gender = pd_patient_data["GENDER"].value_counts(normalize=True) * 100
+    control_gender = non_pd_patient_data["GENDER"].value_counts(normalize=True) * 100
+
+    print("\nGender Distribution (%):")
+    print("              PD      Controls")
+    print(f"Female:      {pd_gender['F']:6.1f}  {control_gender['F']:6.1f}")
+    print(f"Male:        {pd_gender['M']:6.1f}  {control_gender['M']:6.1f}")
+
+
 def main():
     """
     Main execution function that:
@@ -216,30 +269,46 @@ def main():
     """
 
     # Process clinical data and match patients
-    non_pd, pd, pd_subject_ids = (
-        read_data()
+    non_pd_patient_data, pd_patient_data, pd_subject_ids = read_data(
+        "/Users/degenfabian/Documents/VSCODE/Bhanu/data/mimic-iii-clinical-database-1.4"
     )  # Input the path to your MIMIC-III clinical database directory here
-    non_pd, non_pd_subject_ids = match_healthy_to_PD(non_pd, pd)
 
-    total_patients = len(pd_subject_ids) + len(non_pd_subject_ids)
-    successful_downloads = 0
+    # Match control patients to PD patients according to demographic criteria
+    matched_non_pd_with_backup = match_healthy_to_PD(
+        non_pd_patient_data,
+        pd_patient_data,
+        matching_criteria=["GENDER", "AGE"],
+        n_fallback=12,
+    )
+
+    # Track PD patients that were successfully downloaded to download exactly one control patient per PD patient
+    downloaded_pd_patient_ids = []
 
     # Download waveforms for PD patients
     for subject_id in tqdm(pd_subject_ids):
         if download_patient_waveforms(
-            str(subject_id), target_dir="/data/waveform_data/PD/"
+            str(subject_id), target_dir="data/waveform_data/PD/"
         ):
-            successful_downloads += 1
+            downloaded_pd_patient_ids.append(subject_id)
+
+    # Track control patients that were successfully downloaded for calculating dataset statistics
+    downloaded_non_pd_patient_ids = []
 
     # Download waveforms for matched control patients
-    for subject_id in tqdm(non_pd_subject_ids):
-        if download_patient_waveforms(
-            str(subject_id), target_dir="/data/waveform_data/non_PD/"
-        ):
-            successful_downloads += 1
+    for pd_subject_id in tqdm(downloaded_pd_patient_ids):
+        # Find the index of the PD patient in the original data to find the matched control patient (and backups) for that specific PD patient
+        pd_index = np.where(pd_subject_ids == pd_subject_id)[0][0]
 
-    print(
-        f"Successfully downloaded data for {successful_downloads} out of {total_patients} PD patients"
+        # Extract the matched control patient (and backups) for this PD patient
+        matched_non_pd_patients = matched_non_pd_with_backup[pd_index]
+
+        # Iterate through the matched control patient (and backups) for this PD patient and stop after the first successful download
+        for non_pd_subject_id in matched_non_pd_patients:
+            if download_patient_waveforms(
+                str(non_pd_subject_id), target_dir="data/waveform_data/non_PD/"
+            ):
+                downloaded_non_pd_patient_ids.append(non_pd_subject_id)
+                break
     )
 
 
