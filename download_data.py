@@ -309,6 +309,17 @@ def main():
             ):
                 downloaded_non_pd_patient_ids.append(non_pd_subject_id)
                 break
+
+    downloaded_pd_data = pd_patient_data[
+        pd_patient_data["SUBJECT_ID"].isin(downloaded_pd_patient_ids)
+    ]
+    downloaded_non_pd_data = non_pd_patient_data[
+        non_pd_patient_data["SUBJECT_ID"].isin(downloaded_non_pd_patient_ids)
+    ]
+
+    print_dataset_statistics(
+        downloaded_pd_data,
+        downloaded_non_pd_data,
     )
 
 
