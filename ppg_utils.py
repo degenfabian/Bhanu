@@ -3,8 +3,13 @@ import scipy.signal as sp
 import torch
 import wfdb
 from matplotlib import pyplot as plt
+from pathlib import Path
 from sklearn.preprocessing import minmax_scale
-from vital_sqi.sqi.standard_sqi import skewness_sqi, zero_crossings_rate_sqi
+from vital_sqi.sqi.standard_sqi import (
+    skewness_sqi,
+    zero_crossings_rate_sqi,
+    perfusion_sqi,
+)
 
 
 def find_peaks_ppg_li(ppg, fs):
@@ -257,7 +262,7 @@ def matched_peak_detection_sqi(ppg, fs, tolerance_samples=2):
     return m_sqi
 
 
-def assess_ppg_quality(ppg, fs):
+def assess_ppg_quality(raw_ppg, filtered_ppg, fs):
     """
     Assess the quality of PPG signals using three key quality indices from:
     Elgendi M. (2016).
@@ -270,8 +275,11 @@ def assess_ppg_quality(ppg, fs):
     2. Zero crossing rate (Z_SQI)
     3. Matching of multiple systolic wave detection algorithms (M_SQI)
 
+    Additionally, I am also using the gold standard for assessing the quality of PPG signals: the Perfusion Index 
+
     Args:
-        ppg: PPG signal
+        raw_ppg: Raw PPG signal
+        filtered_ppg: Bandpass filtered PPG signal
         fs: Sampling frequency of the signal
 
     Returns:
@@ -280,22 +288,24 @@ def assess_ppg_quality(ppg, fs):
             - metrics_dict: Dictionary containing calculated quality metrics
     """
 
-    skewness = skewness_sqi(ppg)
-    zero_crossing_rate = zero_crossings_rate_sqi(np.array(ppg))
-    matched_peak_detection = matched_peak_detection_sqi(ppg, fs)
+    skewness = skewness_sqi(filtered_ppg)
+    zero_crossing_rate = zero_crossings_rate_sqi(np.array(filtered_ppg))
+    matched_peak_detection = matched_peak_detection_sqi(filtered_ppg, fs)
+    perfusion_index = perfusion_sqi(raw_ppg, filtered_ppg)
 
-    # Quality thresholds based on empirical analysis
-    # Note: Paper doesn't specify exact thresholds, these are derived from analysis
+    # Quality thresholds based on empirical analysis (see quality metrics distribution plot in plots directory)
     is_high_quality = (
-        abs(skewness) < 1.0
-        and zero_crossing_rate < 0.08
-        and matched_peak_detection > 0.6
+        0.3 < skewness < 0.7
+        and zero_crossing_rate < 0.025
+        and matched_peak_detection > 0.7
+        and 230 < perfusion_index < 310
     )
 
     metrics = {
         "skewness": skewness,
         "zero_crossing_rate": zero_crossing_rate,
         "matched_peak_detection": matched_peak_detection,
+        "perfusion_index": perfusion_index,
     }
 
     return is_high_quality, metrics
@@ -409,25 +419,50 @@ def load_ppg(
     return windowed_signals, metrics
 
 
-def plot_ppg(ppg, fs):
+def plot_ppg(ppg, fs, filename, metrics):
     """
     Visualize PPG signal with time on x-axis and amplitude on y-axis.
-
+    Also displays calculated quality metrics and sampling frequency on the plot.
     Implementation based on the WFDB tutorial by Peter H Carlton (2022)
     https://wfdb.io/mimic_wfdb_tutorials/tutorial/notebooks/differentiation.html
-
     Args:
         ppg: PPG signal
         fs: Sampling frequency of the signal
-
+        filename: Name of the file to save the plot
+        metrics: Dictionary containing calculated quality metrics
     Returns:
         None: Displays matplotlib plot
     """
+
+    # Create directory to save plots if it doesn't exist
+    plots_dir = "plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    plot_path = os.path.join(plots_dir, f"{filename}.png")
+
     time = np.arange(len(ppg)) / fs * 1000  # Time in milliseconds
 
-    plt.figure()
+    plt.figure(figsize=(10, 5))
     plt.plot(time, ppg)
-    plt.xlabel("Time (ss)")
+    plt.xlabel("Time (ms)")
     plt.ylabel("Amplitude")
     plt.title("PPG Signal")
-    plt.show()
+
+    # Display quality metrics and sampling frequency on the plot
+    plt.text(
+        1.02,
+        0.95,
+        (
+            f"Sampling Frequency: {fs} Hz\n"
+            f"Skewness SQI: {metrics['skewness']:.2f}\n"
+            f"Zero Crossing Rate SQI: {metrics['zero_crossing_rate']:.2f}\n"
+            f"Matched Peak Detection SQI: {metrics['matched_peak_detection']:.2f}\n"
+            f"Perfusion Index SQI: {metrics['perfusion_index']:.2f}"
+        ),
+        ha="left",
+        va="top",
+        transform=plt.gca().transAxes,
+        bbox=dict(facecolor="white", alpha=0.8),
+    )
+
+    plt.savefig(plot_path, bbox_inches='tight')
+    plt.close()
