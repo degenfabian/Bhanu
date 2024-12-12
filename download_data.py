@@ -93,15 +93,22 @@ def read_data(mimic_path):
     return patients_without_PD, patients_with_PD, pd_subject_ids
 
 
-def match_healthy_to_PD(non_pd, pd, matching_criteria=["GENER", "AGE"]):
+def match_healthy_to_PD(
+    non_pd_patient_data,
+    pd_patient_data,
+    matching_criteria=["GENDER", "AGE"],
+    n_fallback=12,
+):
     """
     Matches control patients to PD patients based on demographic characteristics.
     Uses gender and age for matching criteria by default.
 
     Args:
-        non_pd: DataFrame containing control patient data
-        pd: DataFrame containing PD patient data
+        non_pd_patient_data: DataFrame containing control patient data
+        pd_patient_data: DataFrame containing Parkinson's disease patient data
         matching_criteria: List of columns to use for matching patients
+        n_fallback: Number of backup control patients to match with each PD patient
+                    in case download for control patient fails
 
     Returns:
         tuple: (matched_controls, control_subject_ids)
@@ -110,48 +117,46 @@ def match_healthy_to_PD(non_pd, pd, matching_criteria=["GENER", "AGE"]):
     """
 
     # Map Gender information to integers
-    pd["GENDER"] = pd["GENDER"].map({"M": 1, "F": 0})
-    non_pd["GENDER"] = non_pd["GENDER"].map({"M": 1, "F": 0})
+    pd_patient_data["GENDER"] = pd_patient_data["GENDER"].map({"M": 1, "F": 0})
+    non_pd_patient_data["GENDER"] = non_pd_patient_data["GENDER"].map({"M": 1, "F": 0})
 
     # Extract features used for matching
-    pd_features = pd[matching_criteria].to_numpy()
-    non_pd_features = non_pd[matching_criteria].to_numpy()
+    pd_features = pd_patient_data[matching_criteria].to_numpy()
+    non_pd_features = non_pd_patient_data[matching_criteria].to_numpy()
 
     all_features = np.vstack([pd_features, non_pd_features])
 
     # Standardize features to ensure equal weighting in distance calculation
     scaler = StandardScaler()
     scaler.fit(all_features)
-    normalized_PD = scaler.transform(pd_features)
-    normalized_non_PD = scaler.transform(non_pd_features)
+    pd_normalized = scaler.transform(pd_features)
+    non_pd_normalized = scaler.transform(non_pd_features)
 
-    distances = cdist(normalized_PD, normalized_non_PD, "euclidean")
+    distances = cdist(pd_normalized, non_pd_normalized, "euclidean")
 
     # Match each PD patient with the closest unmatched control patient
     matched_indices = set()
-    for i in range(len(pd)):
-        indices = np.argsort(distances[i])
+    matched_controls_with_backups = {}
+    matches_needed = n_fallback + 1  # Primary match + backup matches
 
-        # Find the closest unmatched control patient
+    for i in range(len(pd_patient_data)):
+        indices = np.argsort(distances[i])  # Sort control patients by distance
+        potential_matches = []
+
+        # Find the closest unmatched control patients
         for j in indices:
-            if j not in matched_indices:
-                matched_indices.add(j)
+            # Stop if enough matches have been found
+            if len(potential_matches) >= matches_needed:
                 break
+            if j not in matched_indices:
+                potential_matches.append(j)
+                matched_indices.add(j)
+        # Store IDs of the matched control patients and their backups
+        matched_controls_with_backups[i] = non_pd_patient_data.iloc[potential_matches][
+            "SUBJECT_ID"
+        ].to_numpy()
 
-    # Select the matched control patients
-    matched_controls = non_pd.iloc[list(matched_indices)]
-
-    print("Matching results:")
-    print(f"PD patients: {len(pd)}")
-    print(f"Matched controls: {len(matched_controls)}")
-    print("\nAge distributions:")
-    print("PD:", pd["AGE"].describe())
-    print("Controls:", matched_controls["AGE"].describe())
-    print("\nGender distributions:")
-    print("PD:", pd["GENDER"].value_counts(normalize=True))
-    print("Controls:", matched_controls["GENDER"].value_counts(normalize=True))
-
-    return matched_controls, matched_controls["SUBJECT_ID"].unique()
+    return matched_controls_with_backups
 
 
 def download_patient_waveforms(subject_id, target_dir="/data/waveform_data/"):
