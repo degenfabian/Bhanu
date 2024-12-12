@@ -167,14 +167,14 @@ def download_patient_waveforms(subject_id, target_dir="/data/waveform_data/"):
     """
 
     # Format subject ID and construct directory paths following MIMIC-III structure
-    subject_id = subject_id.zfill(
+    subject_id = str(subject_id).zfill(
         6
     )  # Ensure subject ID is 6 digits, pad with zeros if necessary
     parent_dir = (
-        "p" + subject_id[:2] + "/"
+        "p" + subject_id[:2]
     )  # Group by first two digits of subject ID for MIMIC-III structure
-    subject_dir = parent_dir + "p" + subject_id + "/"
-    full_target_dir = target_dir + subject_dir
+    subject_dir = parent_dir + "/p" + subject_id
+    full_target_dir = os.path.join(target_dir, subject_dir)
 
     # Check if data already exists to avoid redundant downloads
     if os.path.exists(full_target_dir):
@@ -187,7 +187,7 @@ def download_patient_waveforms(subject_id, target_dir="/data/waveform_data/"):
             os.rmdir(full_target_dir)
 
     # Set up temporary download directory
-    temp_dir = full_target_dir[:-1] + "_temp" + "/"
+    temp_dir = os.path.join(full_target_dir, "_temp")
     try:
         os.makedirs(temp_dir, exist_ok=True)
 
@@ -203,7 +203,7 @@ def download_patient_waveforms(subject_id, target_dir="/data/waveform_data/"):
         print(f"Error downloading data for patient {subject_id}: {str(e)}")
         # Clean up failed download
         if os.path.exists(temp_dir):
-            os.rmdir(temp_dir)
+            shutil.rmtree(temp_dir)
         return False
 
 
