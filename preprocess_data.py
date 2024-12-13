@@ -296,14 +296,14 @@ def find_optimal_patient_subset(patient_IDs, target_number_of_segments, patient_
         current_sum = 0
 
         # Iterate through patients starting from current start_idx
-        for patient in patient_IDs[start_idx:]:
+        for current_patient_id in patient_IDs[start_idx:]:
             # Add patients while staying under target
             if (
-                current_sum + patient_IDs[patient]["segment_count"]
+                current_sum + patient_info[current_patient_id]["segment_count"]
                 <= target_number_of_segments
             ):
-                current_selection.append(patient)
-                current_sum += patient_IDs[patient]["segment_count"]
+                current_selection.append(current_patient_id)
+                current_sum += patient_info[current_patient_id]["segment_count"]
 
         # Update best solution if current selection is closer to target
         current_difference = abs(current_sum - target_number_of_segments)
@@ -409,17 +409,19 @@ def split_by_patient(
     )
 
     # Use remaining patients for training split
-    train_pd_ids = [p for p in remaining_pd_ids if p not in val_pd_ids]
-    train_non_pd_ids = [p for p in remaining_non_pd_ids if p not in val_non_pd_ids]
+    train_pd_ids = [pid for pid in remaining_pd_ids if pid not in val_pd_ids]
+    train_non_pd_ids = [pid for pid in remaining_non_pd_ids if pid not in val_non_pd_ids]
 
-    # Get indices for each split based on patient IDs assigned to each split
-    train_indices = [
-        patient_info[pid]["indices"] for pid in train_pd_ids + train_non_pd_ids
-    ]
-    val_indices = [patient_info[pid]["indices"] for pid in val_pd_ids + val_non_pd_ids]
-    test_indices = [
-        patient_info[pid]["indices"] for pid in test_pd_ids + test_non_pd_ids
-    ]
+    def get_indices_for_split(patient_ids):
+        indices = []
+        for patient_id in patient_ids:
+            indices.extend(patient_info[patient_id]["indices"])
+        return indices
+
+    # Get indices for each split based on patient IDs assigned to each class per split
+    train_indices = get_indices_for_split(train_pd_ids + train_non_pd_ids)
+    val_indices = get_indices_for_split(val_pd_ids + val_non_pd_ids)
+    test_indices = get_indices_for_split(test_pd_ids + test_non_pd_ids)
 
     # Split signals and labels based on indices
     train_signals, train_labels = signals[train_indices], labels[train_indices]
