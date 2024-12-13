@@ -1,21 +1,24 @@
 # Bhanu - Non-invasive Parkinson's Disease Detection Using Transformer-based Analysis of Photoplethysmography Signals
 
 ## Abstract
-This independent research project investigates the potential of photoplethysmography (PPG) signals as non-invasive biomarkers for Parkinson's Disease (PD) detection. 
-By leveraging the MIMIC-III waveform and clinical databases and adapting and finetuning the HeartGPT architecture (https://github.com/harryjdavies/HeartGPT), 
-I demonstrate the feasibility of using transformer-based deep learning models for analyzing physiological time series data in neurological disease detection. 
+
+This independent research project investigates the potential of photoplethysmography (PPG) signals as non-invasive biomarkers for Parkinson's Disease (PD) detection.
+By leveraging the MIMIC-III waveform and clinical databases and adapting and finetuning the HeartGPT architecture [HeartGPT GitHub repository](https://github.com/harryjdavies/HeartGPT),
+I demonstrate the feasibility of using transformer-based deep learning models for analyzing physiological time series data in neurological disease detection.
 
 ## Research Objectives
+
 1. Evaluate the efficacy of PPG signals as biomarkers for Parkinson's Disease
 2. Develop and validate a transformer-based deep learning approach for medical time series classification by adapting and fine-tuning HeartGPT
 3. Examine the effectiveness of selective fine-tuning by training the final five transformer blocks while keeping earlier layers frozen, testing whether HeartGPT's learned signal representations transfer to PD detection
 4. Implement a systematic approach for processing MIMIC-III waveform data, including patient matching, data loading and signal preprocessing pipelines suitable for deep learning applications
+
 ## Methodology
 
 ### Data Collection and Preprocessing
-The study utilizes the MIMIC-III (Medical Information Mart for Intensive Care III) database. MIMIC-III comprises deidentified health-related data associated with over forty thousand patients 
-who stayed in critical care units of the Beth Israel Deaconess Medical Center between 2001 and 2012.
-Of particular interest to this study are the high-resolution physiological waveforms, specifically the PPG signals, recorded during patient stays. 
+
+The study utilizes the MIMIC-III (Medical Information Mart for Intensive Care III) database. MIMIC-III comprises deidentified health-related data associated with over forty thousand patients who stayed in critical care units of the Beth Israel Deaconess Medical Center between 2001 and 2012.
+Of particular interest to this study are the high-resolution physiological waveforms, specifically the PPG signals, recorded during patient stays.
 My preprocessing pipeline includes the following:
 
 1. Patient Cohort Selection:
@@ -59,6 +62,7 @@ My preprocessing pipeline includes the following:
 ```
 
 ### Model Architecture
+
 My approach builds upon the HeartGPT model, with some modifications for PD detection:
 
 - Input Layer: Processes tokenized PPG sequences
@@ -68,6 +72,7 @@ My approach builds upon the HeartGPT model, with some modifications for PD detec
 - Sequence Length: 500 tokens (4-second PPG window sampled at 125 Hz)
 
 The model employs a fine-tuning strategy where:
+
 - Initial layers remain frozen, preserving learned physiological features
 - Final five transformer blocks are fine-tuned
 - New classification head is trained from scratch
@@ -85,6 +90,7 @@ The model employs a fine-tuning strategy where:
 ```
 
 ## Hardware recommendations
+
 - RAM: 64 GB
 - Storage: 128 GB SSD
 - GPU: NVIDIA A100 or similar
@@ -93,6 +99,7 @@ The model employs a fine-tuning strategy where:
 ## Reproduction of results
 
 ### Prerequisites
+
 - Valid PhysioNet credentials
 - MIMIC-III data use agreement
 - Completed CITI training
@@ -100,46 +107,56 @@ The model employs a fine-tuning strategy where:
 - For dependencies see requirements.txt
 
 ### Installation
+
 1. Clone the repository:
-```
-git clone https://github.com/degenfabian/Bhanu.git
-cd Bhanu
-```
+
+   ```bash
+   git clone https://github.com/degenfabian/Bhanu.git
+   cd Bhanu
+   ```
 
 2. Install dependencies:
-```
-pip install -r requirements.txt
 
-```
+   ```bash
+   pip install -r requirements.txt
+
+   ```
 
 3. (Optional) Configure hyperparameters in Config class in train_and_eval.py
+
 4. Download data:
-```
-python download_data.py
 
-```
+   ```bash
+   python download_data.py
+
+   ```
+
 5. Preprocess data (takes ~1-2 hours):
-```
-python preprocess_data.py
 
-```
+   ```bash
+   python preprocess_data.py
+
+   ```
+
 6. Create model_weights directory inside root project folder
-```
-mkdir model_weights
 
-```
+   ```bash
+   mkdir model_weights
 
-7. Download model weights from https://github.com/harryjdavies/HeartGPT (PPGPT_500k_iters.pth) and put them in model_weights directory
+   ```
+
+7. Download model weights from [HeartGPT GitHub repository](https://github.com/harryjdavies/HeartGPT) (PPGPT_500k_iters.pth) and put them in model_weights directory
+
 8. Train and evaluate model:
-```
-python train_and_eval.py
 
-```
+   ```bash
+   python train_and_eval.py
 
-
+   ```
 
 ### Project Structure
-```
+
+```bash
 Bhanu/
 ├── data/
 │   ├── waveform_data/
@@ -157,6 +174,7 @@ Bhanu/
 ```
 
 ## Training and Evaluation
+
 This model was trained in Google Colab using an A100 GPU.
 The split for the dataset was 70% for training, 10% for validation and the remaining 20% for testing.
 Around 5147.8 hours of PPG data is from patients with Parkinson's disease, amounting to 18.57 GB of data.
@@ -164,10 +182,13 @@ For patients without Parkinson's disease there are around 4583.1 hours of PPG da
 The total dataset size is therefore 35.1 GB.
 
 ## Results and Discussion
+
 *Note: The model is currently undergoing training. This section will be updated with final results.*
 
 ### Performance Metrics
+
 The model will be evaluated using the following metrics:
+
 - Accuracy
 - Sensitivity
 - Specificity
@@ -176,6 +197,7 @@ The model will be evaluated using the following metrics:
 ## Limitations and Biases
 
 ### Dataset-Specific Biases
+
 1. Selection Bias
    - MIMIC-III data comes exclusively from ICU/hospital settings, meaning all subjects (both PD and control) were ill enough to require hospitalization
    - PD patients in the dataset may represent more severe or complicated cases than the general PD population
@@ -198,17 +220,20 @@ The model will be evaluated using the following metrics:
    - Frozen initial layers may retain inappropriate feature representations
   
 ### Future work
+
 - External validation on independent datasets
 - Prospective validation studies in clinical settings
 - Comparison with traditional PD diagnostic methods
 - Assessment of model performance across different PD stages
 
 ## Contact
+
 Maintainer: [Fabian Degen] - [fabidegen@gmail.com]
 
 For bugs and feature requests, please open an issue in this GitHub repository.
 
 ## License
+
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
