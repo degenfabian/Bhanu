@@ -4,7 +4,6 @@ import torch
 import wfdb
 import os
 from matplotlib import pyplot as plt
-from pathlib import Path
 from sklearn.preprocessing import minmax_scale
 from vital_sqi.sqi.standard_sqi import (
     skewness_sqi,
@@ -405,7 +404,7 @@ def load_ppg(
     window_samples = int(window_size * target_fs)  # Number of samples in each window
 
     # 1 second window for PD, 1.5 second window for non-PD to have approximately same number of windows
-    sliding_window_size = 1 if label == 1 else 1.5
+    sliding_window_size = 1 if label == 1 else 1.35
 
     stride = int(sliding_window_size * target_fs)  # Size of sliding window in samples
     n_windows = ((len(resampled_ppg) - window_samples) // stride) + 1
