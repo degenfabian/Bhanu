@@ -263,11 +263,67 @@ def tokenize_signals(signals):
     return torch.round(scale).to(torch.int32)
 
 
+def find_optimal_patient_subset(patient_IDs, target_number_of_segments, patient_info):
+    """
+    Find an optimal subset of patients whose total segment count is closest to the target number.
+    Iteratively tries different starting points to find the best consecutive sequence of patients
+    that minimizes the difference between their total segment count and the target number.
+
+    Args:
+        patient_IDs (list): List of patient identifiers
+        target_number_of_segments (int): Desired total number of segments to achieve
+        patient_info: Dictionary mapping patient IDs to their information
+                    Format: patient_id: {
+                            "label": int, 0 or 1 for non-PD/PD
+                            "segment_count": int, number of segments for this patient
+                            "indices": List[int] indices of segments belonging to this patient
+                        }
+
+    Returns:
+        list: Selected patient IDs whose combined segment count best matches the target
+    """
+
+    # Sort patient IDs by segment count
+    patient_IDs = sorted(patient_IDs, key=lambda x: patient_info[x]["segment_count"])
+
+    # Initialize variables to track best selection and difference
+    best_difference = float("inf")
+    best_selection = []
+
+    # Try each possible starting point to find the optimal subset
+    for start_idx in range(len(patient_IDs)):
+        current_selection = []
+        current_sum = 0
+
+        # Iterate through patients starting from current start_idx
+        for patient in patient_IDs[start_idx:]:
+            # Add patients while staying under target
+            if (
+                current_sum + patient_IDs[patient]["segment_count"]
+                <= target_number_of_segments
+            ):
+                current_selection.append(patient)
+                current_sum += patient_IDs[patient]["segment_count"]
+
+        # Update best solution if current selection is closer to target
+        current_difference = abs(current_sum - target_number_of_segments)
+        if current_difference < best_difference:
+            best_difference = current_difference
+            best_selection = current_selection
+
+    return best_selection
+
+
 def split_by_patient(
-    signals, labels, patient_ids, test_size=0.2, val_size=0.1, random_state=42
+    signals,
+    labels,
+    patient_ids,
+    test_size=0.2,
+    val_size=0.1,
 ):
     """
-    Split data ensuring all segments from the same patient stay together.
+    Split data ensuring all segments from the same patient stay together while maintaining class balance
+    and target split sizes.
 
     Args:
         signals: Tensor of signal data
@@ -275,59 +331,109 @@ def split_by_patient(
         patient_ids: List of patient IDs corresponding to each signal
         test_size: Proportion of data to use for testing
         val_size: Proportion of training data to use for validation
-        random_state: Random seed for reproducibility
 
     Returns:
         Tuple of (train_signals, train_labels, val_signals, val_labels, test_signals, test_labels)
     """
 
-    # Get unique patient IDs and map each patient to their label
+    # Get unique patient IDs and their segment counts
     unique_patient_ids = list(set(patient_ids))
-    patient_to_label = {
-        patient_id: labels[patient_ids.index(patient_id)]
-        for patient_id in unique_patient_ids
-    }
+    patient_info = {}
+    for patient_id in unique_patient_ids:
+        indices = [
+            i for i, pid in enumerate(patient_ids) if pid == patient_id
+        ]  # Get indices of this patient's segments
+        label = labels[indices[0]].item()
+        segment_count = len(indices)
+        patient_info[patient_id] = {
+            "label": label,
+            "segment_count": segment_count,
+            "indices": indices,
+        }
 
-    # Split patients into train and test set
-    train_val_patients, test_patients = train_test_split(
-        unique_patient_ids,
-        test_size=test_size,
-        random_state=random_state,
-        stratify=[patient_to_label[patient_id] for patient_id in unique_patient_ids],
+    # Separate patients by class
+    pd_patient_ids = [pid for pid, info in patient_info.items() if info["label"] == 1]
+    non_pd_patient_ids = [
+        pid for pid, info in patient_info.items() if info["label"] == 0
+    ]
+
+    # Calculate total number of segments for each class
+    total_pd_segments = sum(
+        patient_info[pid]["segment_count"] for pid in pd_patient_ids
+    )
+    total_non_pd_segments = sum(
+        patient_info[pid]["segment_count"] for pid in non_pd_patient_ids
     )
 
-    # Further split train set into train and validation set
-    val_size = val_size / (1 - test_size)  # Adjust val_size relative to train set
-    train_patients, val_patients = train_test_split(
-        train_val_patients,
-        test_size=val_size,
-        random_state=random_state,
-        stratify=[patient_to_label[patient_id] for patient_id in train_val_patients],
+    # Calculate target class-distribution ratio per split (use overall dataset ratio as target)
+    target_pd_ratio = total_pd_segments / (total_pd_segments + total_non_pd_segments)
+    target_non_pd_ratio = 1 - target_pd_ratio
+
+    # Calculate target number of segments for each split
+    total_segments = total_pd_segments + total_non_pd_segments
+    target_test_segments = total_segments * test_size
+    remaining_segments = total_segments - target_test_segments
+    val_size = val_size / (
+        1 - test_size
+    )  # Adjust validation size based on size used for test split
+    target_val_segments = remaining_segments * val_size
+
+    # Create test split
+    # Calculate target number of segments for test split per class
+    target_test_pd_segments = int(target_test_segments * target_pd_ratio)
+    target_test_non_pd_segments = int(target_test_segments * target_non_pd_ratio)
+
+    # Get patient IDs used for test split for each class
+    test_pd_ids = find_optimal_patient_subset(
+        pd_patient_ids, target_test_pd_segments, patient_info
+    )
+    test_non_pd_ids = find_optimal_patient_subset(
+        non_pd_patient_ids, target_test_non_pd_segments, patient_info
     )
 
-    # Get indices of each patient in the train, val, and test sets
+    # Remove test patients from available patient IDs
+    remaining_pd_ids = [p for p in pd_patient_ids if p not in test_pd_ids]
+    remaining_non_pd_ids = [p for p in non_pd_patient_ids if p not in test_non_pd_ids]
+
+    # Create validation split
+    # Calculate target number of segments for validation split per class
+    target_val_pd_segments = int(target_val_segments * target_pd_ratio)
+    target_val_non_pd_segments = int(target_val_segments * target_non_pd_ratio)
+
+    # Get patient IDs used for validation split for each class
+    val_pd_ids = find_optimal_patient_subset(
+        remaining_pd_ids, target_val_pd_segments, patient_info
+    )
+    val_non_pd_ids = find_optimal_patient_subset(
+        remaining_non_pd_ids, target_val_non_pd_segments, patient_info
+    )
+
+    # Use remaining patients for training split
+    train_pd_ids = [p for p in remaining_pd_ids if p not in val_pd_ids]
+    train_non_pd_ids = [p for p in remaining_non_pd_ids if p not in val_non_pd_ids]
+
+    # Get indices for each split based on patient IDs assigned to each split
     train_indices = [
-        i for i, patient_id in enumerate(patient_ids) if patient_id in train_patients
+        patient_info[pid]["indices"] for pid in train_pd_ids + train_non_pd_ids
     ]
-    val_indices = [
-        i for i, patient_id in enumerate(patient_ids) if patient_id in val_patients
-    ]
+    val_indices = [patient_info[pid]["indices"] for pid in val_pd_ids + val_non_pd_ids]
     test_indices = [
-        i for i, patient_id in enumerate(patient_ids) if patient_id in test_patients
+        patient_info[pid]["indices"] for pid in test_pd_ids + test_non_pd_ids
     ]
 
-    # Split signals and labels based on patient indices
+    # Split signals and labels based on indices
     train_signals, train_labels = signals[train_indices], labels[train_indices]
     val_signals, val_labels = signals[val_indices], labels[val_indices]
     test_signals, test_labels = signals[test_indices], labels[test_indices]
 
-    for split_name, labels in [
+    # Print distribution statistics
+    for split_name, split_labels in [
         ("Train", train_labels),
         ("Validation", val_labels),
         ("Test", test_labels),
     ]:
-        total = len(labels)
-        pd_count = labels.sum().item()
+        total = len(split_labels)
+        pd_count = split_labels.sum().item()
         non_pd_count = total - pd_count
         print(f"\n{split_name} set:")
         print(f"Total: {total}")
