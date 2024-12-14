@@ -13,6 +13,8 @@ import seaborn as sns
 
 # Parts of this code were inspired by this tutorial: https://wfdb.io/mimic_wfdb_tutorials/tutorials.html by Peter H Carlton © Copyright 2022.
 # The corresponding repository: https://github.com/wfdb/mimic_wfdb_tutorials
+
+
 class PPGDataset(Dataset):
     """
     Custom PyTorch Dataset class for PPG (Photoplethysmography) signals.
@@ -410,7 +412,9 @@ def split_by_patient(
 
     # Use remaining patients for training split
     train_pd_ids = [pid for pid in remaining_pd_ids if pid not in val_pd_ids]
-    train_non_pd_ids = [pid for pid in remaining_non_pd_ids if pid not in val_non_pd_ids]
+    train_non_pd_ids = [
+        pid for pid in remaining_non_pd_ids if pid not in val_non_pd_ids
+    ]
 
     def get_indices_for_split(patient_ids):
         indices = []
