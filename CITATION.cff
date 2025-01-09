@@ -4,7 +4,7 @@ authors:
 - family-names: "Degen"
   given-names: "Fabian"
   orcid: "https://orcid.org/0009-0009-4824-1843"
-title: "Bhanu - Non-invasive Parkinson's Disease Detection Using Transformer-based Analysis of Photoplethysmography Signals"
+title: "Bhanu - Non-invasive Parkinson's Disease Detection Using Deep Learning Based Analysis of Photoplethysmography Signals"
 version: 1.0.0
-date-released: 2024-12-01
+date-released: 2025-01-09
 url: "https://github.com/degenfabian/Bhanu"
