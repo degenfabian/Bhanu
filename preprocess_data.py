@@ -137,7 +137,7 @@ def create_spectrograms(signals, fs):
         f, hilbert_huang_transform = emd.spectra.hilberthuang(
             inst_freqs,
             inst_amps,
-            (0, 10, 224),
+            (0.5, 10, 224),
             mode="amplitude",
             sum_time=False,
         )
