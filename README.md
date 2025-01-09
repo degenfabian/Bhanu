@@ -23,6 +23,9 @@ The study utilizes the MIMIC-III (Medical Information Mart for Intensive Care II
 2. Signal Preprocessing:
    - Extraction of PPG segments from waveform data
    - Bandpass filtering with a 4th-order Chebyshev 2 filter (0.5 Hz - 10 Hz)
+   - Resampling to 100 Hz
+   - Windowing of PPG signals into 5 second windows
+   - Signal standardization (zero mean, unit variance)
    - Removal of segments with missing or NaN values
 
 3. Signal Quality Assessment:
@@ -33,7 +36,6 @@ The study utilizes the MIMIC-III (Medical Information Mart for Intensive Care II
       - Perfusion index
 
 4. Data Transformation:
-   - Signal standardization (zero mean, unit variance)
    - Creation of Hilbert-Huang Transform spectrograms
    - Resizing to 224x224 for model input
    - 70%/20%/10% Train/test/validation split at patient-level
@@ -46,6 +48,8 @@ The following plots demonstrate the signal quality assessment process:
 *Distribution of quality indices for PPG signals across the entire dataset*
 
 #### Example PPG Signals
+
+##### Not the entire 5 seconds of the PPG signal window are shown in these plots
 
 ![High Quality PPG](plots/high_quality_ppg.png)
 *Example of a high-quality PPG signal meeting all quality thresholds*
@@ -61,6 +65,13 @@ The following plots demonstrate the signal quality assessment process:
 
 ![Perfusion Index Violation](plots/perfusion_index_low_quality_ppg.png)
 *Example of a PPG signal violating only the perfusion index threshold*
+
+#### Example Spectrogram
+
+The following plot shows a PPG signal and its corresponding spectrogram which is fed into the model:
+
+![PPG and spectrogram](plots/ppg_spectrogram.png)
+*PPG signal and its corresponding spectrogram*
 
 ### Model Architecture
 
