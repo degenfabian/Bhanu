@@ -1,102 +1,89 @@
-# Bhanu - Non-invasive Parkinson's Disease Detection Using Transformer-based Analysis of Photoplethysmography Signals
+# Bhanu - Non-invasive Parkinson's Disease Detection Using Deep Learning Based Analysis of Photoplethysmography Signals
 
 ## Abstract
 
-This independent research project investigates the potential of photoplethysmography (PPG) signals as non-invasive biomarkers for Parkinson's Disease (PD) detection.
-By leveraging the MIMIC-III waveform and clinical databases and adapting and finetuning the HeartGPT architecture [HeartGPT GitHub repository](https://github.com/harryjdavies/HeartGPT),
-I demonstrate the feasibility of using transformer-based deep learning models for analyzing physiological time series data in neurological disease detection.
+This research project investigates the potential of photoplethysmography (PPG) signals as non-invasive biomarkers for Parkinson's Disease (PD) detection. The project leverages the MIMIC-III waveform and clinical databases to investigate the feasibility of using deep learning models for analyzing physiological time series data in neurological disease detection.
 
 ## Research Objectives
 
 1. Evaluate the efficacy of PPG signals as biomarkers for Parkinson's Disease
-2. Develop and validate a transformer-based deep learning approach for medical time series classification by adapting and fine-tuning HeartGPT
-3. Examine the effectiveness of selective fine-tuning by training the final five transformer blocks while keeping earlier layers frozen, testing whether HeartGPT's learned signal representations transfer to PD detection
-4. Implement a systematic approach for processing MIMIC-III waveform data, including patient matching, data loading and signal preprocessing pipelines suitable for deep learning applications
+2. Develop and validate a deep learning approach for medical time series classification
+3. Implement a systematic approach for processing MIMIC-III waveform data, including data loading, patient matching, and signal preprocessing pipelines
 
 ## Methodology
 
 ### Data Collection and Preprocessing
 
-The study utilizes the MIMIC-III (Medical Information Mart for Intensive Care III) database. MIMIC-III comprises deidentified health-related data associated with over forty thousand patients who stayed in critical care units of the Beth Israel Deaconess Medical Center between 2001 and 2012.
-Of particular interest to this study are the high-resolution physiological waveforms, specifically the PPG signals, recorded during patient stays.
-My preprocessing pipeline includes the following:
+The study utilizes the MIMIC-III (Medical Information Mart for Intensive Care III) database, which comprises deidentified health data from over forty thousand patients who stayed in critical care units of the Beth Israel Deaconess Medical Center between 2001 and 2012.
 
 1. Patient Cohort Selection:
    - Identification of PD patients using ICD-9 codes
-   - Demographic matching according to patient age and gender with control subjects
+   - Demographic matching of control subjects based on age and gender
 
 2. Signal Preprocessing:
-   - Extraction of 4-second PPG segments from waveform data
-   - Bandpass filtering (0.7 Hz - 10 Hz)
-   - Removal of segments that contain missing or NaN values
+   - Extraction of PPG segments from waveform data
+   - Bandpass filtering with a 4th-order Chebyshev 2 filter (0.5 Hz - 10 Hz)
+   - Removal of segments with missing or NaN values
 
-3. Data Transformation:
-   - Signal normalization (zero mean, unit variance)
-   - Min-max scaling to [0,1] range
-   - Tokenization into discrete values (0-100 -> 101 total tokens)
-   - Train/validation/test split with stratification
+3. Signal Quality Assessment:
+   - Implementation of comprehensive quality filtering using multiple indices:
+      - Skewness
+      - Zero crossings rate
+      - Matched peak detection
+      - Perfusion index
 
-```bibtex
-@article{johnson2016mimic,
-    title={MIMIC-III, a freely accessible critical care database},
-    author={Johnson, Alistair EW and Pollard, Tom J and Shen, Lu and 
-            Li-Wei, H Lehman and Feng, Mengling and Ghassemi, Mohammad and 
-            Moody, Benjamin and Szolovits, Peter and Celi, Leo Anthony and 
-            Mark, Roger G},
-    journal={Scientific data},
-    volume={3},
-    number={1},
-    pages={1--9},
-    year={2016},
-    publisher={Nature Publishing Group}
-}
+4. Data Transformation:
+   - Signal standardization (zero mean, unit variance)
+   - Creation of Hilbert-Huang Transform spectrograms
+   - Resizing to 224x224 for model input
+   - 70%/20%/10% Train/test/validation split at patient-level
 
-@article{moody2020mimic,
-    title={MIMIC-III Waveform Database (version 1.0)},
-    author={Moody, Benjamin and Moody, George and Villarroel, Mauricio and 
-            Clifford, Gari D and Silva, Ikaro},
-    journal={PhysioNet},
-    year={2020},
-    doi={10.13026/c2607m}
-}
-```
+### Quality Analysis Plots
+
+The following plots demonstrate the signal quality assessment process:
+
+![Quality Metrics Distribution](plots/quality_metrics_distribution.png)
+*Distribution of quality indices for PPG signals across the entire dataset*
+
+#### Example PPG Signals
+
+![High Quality PPG](plots/high_quality_ppg.png)
+*Example of a high-quality PPG signal meeting all quality thresholds*
+
+![Skewness Violation](plots/skewness_low_quality_ppg.png)
+*Example of a PPG signal violating only the skewness threshold*
+
+![Zero Crossings Violation](plots/zero_crossing_rate_low_quality_ppg.png)
+*Example of a PPG signal violating only the zero crossings rate threshold*
+
+![Peak Detection Violation](plots/matched_peak_detection_low_quality_ppg.png)
+*Example of a PPG signal violating only the matched peak detection threshold*
+
+![Perfusion Index Violation](plots/perfusion_index_low_quality_ppg.png)
+*Example of a PPG signal violating only the perfusion index threshold*
 
 ### Model Architecture
 
-My approach builds upon the HeartGPT model, with some modifications for PD detection:
+The model uses a CNN-based architecture (Bhanu):
 
-- Input Layer: Processes tokenized PPG sequences
-- Transformer Backbone: 8 layers with 8 attention heads
-- Custom Classification Head: For classifying PD from PPG signals
-- Embedding Dimension: 64
-- Sequence Length: 500 tokens (4-second PPG window sampled at 125 Hz)
+- Input Layer: 1-channel 224x224 grayscale spectrograms
+- Feature Extraction:
+  - Three convolutional blocks with GELU activation
+  - Max pooling and batch normalization
+  - Adaptive average pooling
+- Classification Head:
+  - Dropout layer
+  - Single linear layer for binary classification
 
-The model employs a fine-tuning strategy where:
+Training Details:
 
-- Initial layers remain frozen, preserving learned physiological features
-- Final five transformer blocks are fine-tuned
-- New classification head is trained from scratch
+- Loss Function: BCE with Logits Loss (weighted for class imbalance)
+- Optimizer: AdamW with weight decay
+- Learning Rate: 1e-5 with linear warmup and decay schedule
+- Gradient Clipping: 1.0 threshold
+- Early Stopping: Based on validation AUC-ROC
 
-```bibtex
-@misc{davies2024interpretablepretrainedtransformersheart,
-      title={Interpretable Pre-Trained Transformers for Heart Time-Series Data}, 
-      author={Harry J. Davies and James Monsen and Danilo P. Mandic},
-      year={2024},
-      eprint={2407.20775},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2407.20775}, 
-}
-```
-
-## Hardware recommendations
-
-- RAM: 64 GB
-- Storage: 128 GB SSD
-- GPU: NVIDIA A100 or similar
-- High-speed internet connection
-
-## Reproduction of results
+## Installation
 
 ### Prerequisites
 
@@ -104,9 +91,8 @@ The model employs a fine-tuning strategy where:
 - MIMIC-III data use agreement
 - Completed CITI training
 - Python 3.10+
-- For dependencies see requirements.txt
 
-### Installation
+### Setup
 
 1. Clone the repository:
 
@@ -119,39 +105,24 @@ The model employs a fine-tuning strategy where:
 
    ```bash
    pip install -r requirements.txt
-
    ```
 
-3. (Optional) Configure hyperparameters in Config class in train_and_eval.py
-
-4. Download data:
+3. Download MIMIC-III data:
 
    ```bash
    python download_data.py
-
    ```
 
-5. Preprocess data (takes ~1-2 hours):
+4. Preprocess data:
 
    ```bash
    python preprocess_data.py
-
    ```
 
-6. Create model_weights directory inside root project folder
-
-   ```bash
-   mkdir model_weights
-
-   ```
-
-7. Download model weights from [HeartGPT GitHub repository](https://github.com/harryjdavies/HeartGPT) (PPGPT_500k_iters.pth) and put them in model_weights directory
-
-8. Train and evaluate model:
+5. Train and evaluate model:
 
    ```bash
    python train_and_eval.py
-
    ```
 
 ### Project Structure
@@ -162,33 +133,42 @@ Bhanu/
 │   ├── waveform_data/
 │   │   ├── PD/
 │   │   └── non_PD/
+│   ├── quality_metrics.pt
 │   ├── train_dataset.pt
 │   ├── val_dataset.pt
 │   └── test_dataset.pt
-├── preprocess_data.py
-├── model.py
-├── train_and_eval.py
+├── model_weights/
+│   └── Bhanu.pt
+├── plots/
+│   ├── high_quality_ppg.png
+│   ├── matched_peak_detection_low_quality_ppg.png
+│   ├── perfusion_index_low_quality_ppg.png
+│   ├── quality_metrics_distribution.png
+│   ├── skewness_low_quality_ppg.png
+│   └── zero_crossing_rate_low_quality_ppg.png
+├── .gitignore
+├── CITATION.cff
+├── download_data.py
+├── LICENSE
 ├── metrics.py
-└── model_weights/
-    └── PPGPT_500k_iters.pth
+├── model.py
+├── ppg_utils.py
+├── preprocess_data.py
+├── README.md
+├── requirements.txt
+└── train_and_eval.py
 ```
-
-## Training and Evaluation
-
-This model was trained in Google Colab using an A100 GPU.
-The split for the dataset was 70% for training, 10% for validation and the remaining 20% for testing.
-Around 5147.8 hours of PPG data is from patients with Parkinson's disease, amounting to 18.57 GB of data.
-For patients without Parkinson's disease there are around 4583.1 hours of PPG data, amounting to 16.53 GB of data.
-The total dataset size is therefore 35.1 GB.
 
 ## Results and Discussion
 
-*Note: The model is currently undergoing training. This section will be updated with final results.*
+*Note: So far I have not been able to produce results that are significantly better than random guessing. I will continue trying
+different architectures and hyperparameters and publish the results here once they are satisfying.*
 
 ### Performance Metrics
 
-The model will be evaluated using the following metrics:
+The model will be evaluated using:
 
+- AUC-ROC
 - Accuracy
 - Sensitivity
 - Specificity
@@ -196,35 +176,22 @@ The model will be evaluated using the following metrics:
 
 ## Limitations and Biases
 
-### Dataset-Specific Biases
-
 1. Selection Bias
    - MIMIC-III data comes exclusively from ICU/hospital settings, meaning all subjects (both PD and control) were ill enough to require hospitalization
-   - PD patients in the dataset may represent more severe or complicated cases than the general PD population
-   - Control subjects are not healthy individuals but other hospitalized patients, potentially confounding the analysis
+   - PD patients in the dataset may represent more severe cases than the general PD population or have additional diseases
+   - Control subjects are not healthy individuals, potentially confounding the analysis
 
 2. Demographic Biases
    - MIMIC-III data comes from a single medical center (Beth Israel Deaconess Medical Center)
    - Geographic limitation to one region may not represent global population variations
    - Potential socioeconomic biases based on hospital location and accessibility
 
-### Methodological Biases
+## Future Work
 
-1. Signal Processing Biases
-   - 4-second PPG segment selection may miss longer-term patterns
-   - Bandpass filtering could eliminate potentially relevant signal components
-   - Tokenization process may introduce quantization artifacts
-
-2. Model Architecture Biases
-   - Transfer learning from HeartGPT may carry over biases from cardiac domain
-   - Frozen initial layers may retain inappropriate feature representations
-  
-### Future work
-
-- External validation on independent datasets
-- Prospective validation studies in clinical settings
-- Comparison with traditional PD diagnostic methods
-- Assessment of model performance across different PD stages
+- Validation studies with different datasets
+- Prospective clinical validation
+- Interpretability of model predictions
+- Classification of different PD stages
 
 ## Contact
 
@@ -240,4 +207,42 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Research Disclaimer**: This work is intended for research purposes only. The methods and findings presented here should not be used for clinical diagnosis without proper validation and regulatory approval.
 
-**Acknowledgments**: I thank the PhysioNet team for providing access to the MIMIC-III database and the original HeartGPT authors for their spectacular work.
+## References
+
+```apa
+Johnson, A., Pollard, T., & Mark, R. (2016). 
+MIMIC-III Clinical Database (version 1.4). 
+PhysioNet. https://doi.org/10.13026/C2XW26.
+
+Moody, B., Moody, G., Villarroel, M., Clifford, G. D., & Silva, I. (2020).
+MIMIC-III Waveform Database (version 1.0).
+PhysioNet. https://doi.org/10.13026/c2607m.
+
+Johnson, A., Pollard, T., Shen, L. et al.
+MIMIC-III, a freely accessible critical care database.
+Sci Data 3, 160035 (2016).
+https://doi.org/10.1038/sdata.2016.35
+
+Goldberger, A., Amaral, L., Glass, L., Hausdorff, J., Ivanov, P. C., Mark, R., ... & Stanley, H. E. (2000).
+PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex physiologic signals.
+Circulation [Online]. 101 (23), pp. e215–e220.
+
+Elgendi M. (2016).
+Optimal Signal Quality Index for Photoplethysmogram Signals.
+Bioengineering (Basel, Switzerland), 3(4), 21.
+https://doi.org/10.3390/bioengineering3040021
+
+Li, B. N., Dong, M. C., & Vai, M. I. (2010).
+On an automatic delineator for arterial blood pressure waveforms.
+Biomedical Signal Processing and Control, 5(1), 76–81.
+doi:10.1016/j.bspc.2009.06.002
+
+Andrew J. Quinn, Vitor Lopes-dos-Santos, David Dupret, Anna Christina Nobre & Mark W. Woolrich (2021)
+EMD: Empirical Mode Decomposition and Hilbert-Huang Spectral Analyses in Python
+Journal of Open Source Software 10.21105/joss.02977
+
+Le, V.-K. D., Ho, H. B., Karolcik, S., Hernandez, B., Greeff, H., Nguyen, V. H., … 
+The Vietnam Icu Translational Applications Laboratory (vital) Investigators. (2022). 
+vital_sqi: A Python package for physiological signal quality control. Frontiers in Physiology, 13. 
+doi:10.3389/fphys.2022.1020458
+```
