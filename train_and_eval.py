@@ -1,21 +1,10 @@
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
-from tqdm import tqdm
 import os
+from tqdm import tqdm
+from model import Bhanu
 from preprocess_data import get_dataloaders, PPGDataset
-from model import Heart_GPT_FineTune, ClassificationHead
 from metrics import BinaryClassificationMetrics
-
-"""
-The values for the Config class and large parts of the main function were taken from: 
-https://github.com/harryjdavies/HeartGPT/blob/main/HeartGPT_finetuning.py
-
-Davies, H. J., Monsen, J., & Mandic, D. P. (2024). 
-Interpretable Pre-Trained Transformers for Heart Time-Series Data.
-arXiv [Cs.LG]. 
-Retrieved from http://arxiv.org/abs/2407.20775
-"""
 
 
 class Config:
@@ -27,47 +16,32 @@ class Config:
         epochs (int): Total number of training epochs
         prediction_threshold (float): Threshold for binary classification
         early_stopping_patience (int): Number of epochs without improvement before stopping
-        scheduler_patience (int): Epochs to wait before reducing learning rate
-        scheduler_factor (float): Factor to reduce learning rate by
         batch_size (int): Number of samples per batch
         num_workers (int): Number of DataLoader workers
         pin_memory (bool): Whether to pin memory in DataLoader
         persistent_workers (bool): Whether to keep DataLoader workers alive
-        use_amp (bool): Whether to use automatic mixed precision
         dropout (float): Dropout rate
         learning_rate (float): Learning rate for optimizer
         weight_decay (float): Weight decay for optimizer
         gradient_clipping_threshold (float): Maximum gradient norm
-        loss_function (nn.Module): Loss function for training
-        blocks_to_unfreeze (int): Number of transformer blocks to unfreeze for fine-tuning
-        vocab_size (int): Size of the vocabulary
         device (str): Device to use for training ('cuda', 'mps', or 'cpu')
+        loss_function (nn.Module): Loss function for training
         model_path (str): Path to save/load model weights
         data_path (str): Path to data directory
-        block_size (int): Size of transformer blocks
-        n_embd (int): Embedding dimension
-        n_head (int): Number of attention heads
-        n_layer (int): Number of transformer layers
     """
 
     save_interval = 1
-    epochs = 100
+    epochs = 90
     prediction_threshold = 0.5
-    early_stopping_patience = 15
-    scheduler_patience = 3
-    scheduler_factor = 0.5
-    batch_size = 512
-    num_workers = 4
+    early_stopping_patience = 10
+    batch_size = 128
+    num_workers = 8
     pin_memory = True
     persistent_workers = True
-    use_amp = True
-    dropout = 0.4
-    learning_rate = 1e-05
-    weight_decay = 0.01
+    dropout = 0.5
+    learning_rate = 1e-5
+    weight_decay = 0.1
     gradient_clipping_threshold = 1.0
-    loss_function = nn.BCEWithLogitsLoss()
-    blocks_to_unfreeze = 1
-    vocab_size = 102
     device = (
         "cuda"
         if torch.cuda.is_available()
@@ -75,12 +49,9 @@ class Config:
         if torch.backends.mps.is_available()
         else "cpu"
     )
+    loss_function = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([1.325]).to(device))
     model_path = "model_weights/"
     data_path = "data/"
-    block_size = 500
-    n_embd = 64
-    n_head = 8
-    n_layer = 8
 
 
 def evaluate(cfg, model, data_loader, metrics):
@@ -105,6 +76,7 @@ def evaluate(cfg, model, data_loader, metrics):
         for ppg, label in tqdm(data_loader, desc="Evaluating", position=0, leave=True):
             ppg = ppg.to(cfg.device)
             label = label.to(cfg.device)
+
             output = model(ppg)
             loss = cfg.loss_function(output, label)
             total_loss += loss.item()
@@ -118,7 +90,7 @@ def evaluate(cfg, model, data_loader, metrics):
     avg_loss = total_loss / len(data_loader)
 
     # Calculate and print metrics
-    metrics.calculate_and_print_metrics(avg_loss)
+    metrics.calculate_and_print_metrics(avg_loss, 0)
 
 
 def save_checkpoint(
@@ -126,7 +98,6 @@ def save_checkpoint(
     model,
     optimizer,
     epoch,
-    scaler,
     scheduler,
     train_metrics,
     val_metrics,
@@ -140,7 +111,6 @@ def save_checkpoint(
         model (nn.Module): The model to save
         optimizer (Optimizer): Optimizer for updating model parameters
         epoch (int): Current epoch
-        scaler (GradScaler): AMP GradScaler for mixed precision training
         scheduler (lr_scheduler): Learning rate scheduler instance
         train_metrics (BinaryClassificationMetrics): Training metrics history
         val_metrics (BinaryClassificationMetrics): Validation metrics history
@@ -156,9 +126,6 @@ def save_checkpoint(
         "val_metrics": val_metrics,
     }
 
-    if cfg.use_amp:
-        checkpoint["scaler"] = scaler.state_dict()
-
     os.makedirs(cfg.model_path, exist_ok=True)
     torch.save(checkpoint, os.path.join(cfg.model_path, checkpoint_name))
 
@@ -166,7 +133,6 @@ def save_checkpoint(
 def train(
     cfg,
     model,
-    optimizer,
     train_loader,
     val_loader=None,
     checkpoint=None,
@@ -177,7 +143,6 @@ def train(
     Args:
         cfg (Config): Configuration object containing training settings
         model (nn.Module): The model to train
-        optimizer (Optimizer): Optimizer for updating model parameters
         train_loader (DataLoader): DataLoader for training data
         val_loader (DataLoader, optional): DataLoader for validation data
         checkpoint (dict, optional): Checkpoint to resume training from
@@ -185,22 +150,33 @@ def train(
     Notes:
         - Implements early stopping based on AUC-ROC score
         - Saves periodic checkpoints and best model based on validation AUC-ROC
-        - Uses mixed precision training when cfg.use_amp is True
         - Implements gradient clipping for training stability
-        - Features learning rate scheduling based on validation AUC-ROC
+        - Implements linear learning rate warmup and decay as described in the original ViT paper
         - Maintains comprehensive metrics history for both training and validation
         - Can resume training from a checkpoint including optimizer, scheduler,
           and metrics state
     """
 
     model = model.to(cfg.device)
-    scaler = torch.amp.GradScaler()
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay
+    )
+
+    # Linear learning rate warmup and decay as described in the original ViT paper
+    steps_per_epoch = len(train_loader)
+    linear_warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, end_factor=1, total_iters=3 * steps_per_epoch
+    )
+    linear_decay = torch.optim.lr_scheduler.LinearLR(
         optimizer,
-        mode="max",
-        factor=cfg.scheduler_factor,
-        patience=cfg.scheduler_patience,
-        verbose=True,
+        start_factor=1.0,
+        end_factor=0.001,
+        total_iters=(cfg.epochs - 3) * steps_per_epoch,
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[linear_warmup, linear_decay],
+        milestones=[3 * steps_per_epoch],
     )
 
     best_auc_roc = 0
@@ -220,10 +196,6 @@ def train(
         train_metrics = checkpoint["train_metrics"]
         val_metrics = checkpoint["val_metrics"]
 
-        if cfg.use_amp and "scaler" in checkpoint:
-            scaler.load_state_dict(checkpoint["scaler"])
-            print("Restored AMP scaler state from checkpoint")
-
         print(f"Resuming training from epoch {start_epoch}")
 
     # Main training loop
@@ -240,23 +212,17 @@ def train(
 
             optimizer.zero_grad()
 
-            # Mixed precision training when cfg.use_amp is True
-            with torch.autocast(
-                device_type=cfg.device, dtype=torch.float16, enabled=cfg.use_amp
-            ):
-                output = model(ppg)
-                loss = cfg.loss_function(output, label)
-
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)  # Unscales gradients for clipping
+            output = model(ppg)
+            loss = cfg.loss_function(output, label)
+            loss.backward()
 
             # Gradient clipping
             nn.utils.clip_grad_norm_(
                 model.parameters(), cfg.gradient_clipping_threshold
             )
 
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
+            scheduler.step()
 
             training_loss += loss.item()
 
@@ -270,7 +236,7 @@ def train(
 
         print(f"Training metrics for epoch {epoch}: \n")
         train_metrics.calculate_and_print_metrics(
-            avg_loss
+            avg_loss, scheduler.get_last_lr()[0]
         )  # Calculate and print training metrics
 
         # Validation phase
@@ -280,9 +246,6 @@ def train(
             evaluate(cfg, model, val_loader, val_metrics)
 
             current_auc_roc = val_metrics.get_current_auc_roc()
-            scheduler.step(
-                current_auc_roc
-            )  # Adjust learning rate based on validation AUC-ROC
 
             # Save best model based on AUC-ROC
             if current_auc_roc > best_auc_roc:
@@ -292,7 +255,6 @@ def train(
                     model,
                     optimizer,
                     epoch,
-                    scaler,
                     scheduler,
                     train_metrics,
                     val_metrics,
@@ -313,7 +275,6 @@ def train(
                 model,
                 optimizer,
                 epoch,
-                scaler,
                 scheduler,
                 train_metrics,
                 val_metrics,
@@ -343,16 +304,15 @@ def test(cfg, model, test_loader):
 
 def main():
     """
-    Main function that handles the model fine-tuning process:
-    1. Loads pretrained model
-    2. Freezes all layers except the last blocks_to_unfreeze blocks and the classification head
-    3. Trains the model
-    4. Saves the fine-tuned model
-    5. Tests the performance of fine-tuned model
+    Main function that sets up the training process:
+    1. Initializes the model with the configuration
+    2. Trains the model
+    3. Saves the best model based on validation AUC-ROC
+    4. Tests the performance on test set
     """
 
     cfg = Config()
-    model = Heart_GPT_FineTune(cfg).to(cfg.device)
+    model = Bhanu(cfg)
 
     # Use cuDNN benchmark for faster training if using CUDA
     if cfg.device == "cuda":
@@ -360,50 +320,15 @@ def main():
 
     print(f"Using device: {cfg.device}")
 
-    model.load_state_dict(
-        torch.load(
-            os.path.join(cfg.model_path, "PPGPT_500k_iters.pth"),
-            map_location=cfg.device,
-            weights_only=True,
-        )
-    )
-
-    # Freeze all parameters
-    for param in model.parameters():
-        param.requires_grad = False
-
-    model.lm_head = ClassificationHead(cfg)
-
-    # Replace and unfreeze head
-    for param in model.lm_head.parameters():
-        param.requires_grad = True
-
-    # Unfreeze layer normalization
-    for param in model.ln_f.parameters():
-        param.requires_grad = True
-
-    last_blocks = model.blocks[-cfg.blocks_to_unfreeze :]
-
-    # Unfreeze last four transformer blocks
-    for block in last_blocks:
-        for param in block.parameters():
-            param.requires_grad = True
-
-    # Setup training
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay
-    )
-
     train_loader, val_loader, test_loader = get_dataloaders(cfg)
 
     train(
         cfg,
         model,
-        optimizer,
         train_loader,
         val_loader,
     )
-    torch.save(model.state_dict(), os.path.join(cfg.model_path, "PPGPT_finetuned.pth"))
+    torch.save(model.state_dict(), os.path.join(cfg.model_path, "Bhanu.pt"))
 
     test(cfg, model, test_loader)
 

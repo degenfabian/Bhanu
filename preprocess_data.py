@@ -2,17 +2,14 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import wfdb  # For reading PhysioNet data
 import os
-from sklearn.model_selection import train_test_split
 import numpy as np
 from tqdm import tqdm
 from ppg_utils import load_ppg
 import traceback
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-
-# Parts of this code were inspired by this tutorial: https://wfdb.io/mimic_wfdb_tutorials/tutorials.html by Peter H Carlton © Copyright 2022.
-# The corresponding repository: https://github.com/wfdb/mimic_wfdb_tutorials
+import emd
+import cv2
 
 
 class PPGDataset(Dataset):
@@ -21,8 +18,12 @@ class PPGDataset(Dataset):
     """
 
     def __init__(self, signals, labels):
-        self.signals = signals
-        self.labels = labels.to(torch.float32)  # Convert to float for BCE loss
+        self.signals = signals.to(
+            torch.float32
+        )  # Convert signals to float32 for compatibility with MPS
+        self.labels = labels.to(
+            torch.float32
+        )  # Convert labels to float32 for compatibility with BCEWithLogitsLoss
 
     def __len__(self):
         return len(self.signals)
@@ -55,7 +56,6 @@ def analyze_and_visualize_metrics(quality_metrics):
 
     for i, (key, values) in enumerate(quality_metrics.items()):
         values = np.array(values)
-
         # Calculate IQR and bounds for outlier removal
         q1, q3 = np.percentile(values, [25, 75])
         iqr = q3 - q1
@@ -97,36 +97,106 @@ def analyze_and_visualize_metrics(quality_metrics):
     plt.close()
 
 
+def create_spectrograms(signals, fs):
+    """
+    Creates Hilbert-Huang Transform (HHT) based spectrograms from a list of signals.
+
+    This function performs EMD (Empirical Mode Decomposition) on each signal,
+    computes instantaneous frequencies and amplitudes using Normalized Hilbert Transform,
+    and generates a time-frequency-amplitude representation (spectrogram).
+
+    Args:
+        signals: List of PPG signals
+        fs: Sampling frequency in Hz
+
+    Returns:
+        spectrograms: List of spectrograms, each of shape (1, 224, 224)
+                           where dimensions represent (channels, frequency bins, time steps)
+
+    Note:
+        - Uses mask sift EMD with maximum 7 intrinsic mode functions (IMFs)
+        - Frequency range is set to 0-10 Hz with 224 frequency bins
+        - Output spectrograms are resized to 224x224 for input into the model
+    """
+
+    spectrograms = []  # List to store spectrograms for each window
+
+    # Calculate spectrograms for each window
+    for signal in signals:
+        # Decompose signal into intrinsic mode functions (IMFs) using masked EMD
+        # Limited to 7 IMFs to capture relevant frequency components
+        intrinsic_mode_functions = emd.sift.mask_sift(signal, max_imfs=7)
+
+        # Calculate instantaneous frequencies and amplitudes using Normalized Hilbert Transform
+        _, inst_freqs, inst_amps = emd.spectra.frequency_transform(
+            intrinsic_mode_functions, fs, method="nht"
+        )
+
+        # Generate Hilbert-Huang Transform spectrogram
+        # Frequency range: 0-10 Hz, with 224 frequency bins
+        f, hilbert_huang_transform = emd.spectra.hilberthuang(
+            inst_freqs,
+            inst_amps,
+            (0, 10, 224),
+            mode="amplitude",
+            sum_time=False,
+        )
+
+        # Resize spectrogram to target dimensions (224x224)
+        hilbert_huang_transform = cv2.resize(hilbert_huang_transform, (224, 224))
+
+        # Convert to PyTorch tensor and add channel dimension for input to model
+        spectrum = torch.from_numpy(hilbert_huang_transform)
+        spectrograms.append(spectrum.unsqueeze(0))
+
+    return spectrograms
+
+
 def load_data(
     path_to_data,
-    label,
     distance_from_start_and_end=100,
-    window_size=10,
-    target_fs=50,
+    window_size=5,
+    target_fs=100,
 ):
     """
-    Loads and processes PPG signals from a directory of WFDB records.
+    Loads and processes PPG (Photoplethysmogram) signals from a directory of WFDB records
+    and converts them into spectrograms.
+
+    This function searches through a directory of WFDB records, extracts PPG signals and
+    filters them extensively for quality. When a signal is of sufficient quality, it
+    processes them into window_size seconds long windows and converts them into
+    spectrograms while tracking signal quality metrics and patient identifiers.
 
     Args:
         path_to_data: Directory containing the WFDB records
-        label: Label to assign to all signals from this directory (1 for PD, 0 for non-PD)
         distance_from_start_and_end: Number of seconds to skip from the start and end of each segment
         window_size: Size of each individual PPG window in seconds
         target_fs: Target sampling frequency to resample the signal to
+
     Returns:
-        Tuple of (signals, labels, patient_ids, quality_metrics)
+        A tuple containing:
+            - spectrograms: Spectrograms generated from the PPG windows
+            - patient_ids: Patient IDs corresponding to each spectrogram for patient-level splitting
+            - quality_metrics: Quality metrics for the processed signals with keys:
+                - 'skewness': Signal skewness values
+                - 'zero_crossing_rate': Rate of signal zero crossings
+                - 'matched_peak_detection': Peak detection quality metrics
+                - 'perfusion_index': Blood perfusion index values
+
+    Note:
+        Parts of this code were inspired by this tutorial: https://wfdb.io/mimic_wfdb_tutorials/tutorials.html by Peter H Carlton © Copyright 2022.
+        The corresponding repository: https://github.com/wfdb/mimic_wfdb_tutorials
     """
 
     print("Loading data from " + path_to_data + "\n")
-    all_signals = []
-    all_labels = []
+    all_spectrograms = []
     all_patient_ids = []  # Track patient IDs for patient-level splits
     quality_metrics = {
         "skewness": [],
         "zero_crossing_rate": [],
         "matched_peak_detection": [],
         "perfusion_index": [],
-    }  # Track quality metrics for signal analysis
+    }  # Track quality metrics for quality analysis of PPG signals
 
     # Find all master header files
     files_to_process = []
@@ -178,7 +248,6 @@ def load_data(
                         windowed_ppg, metrics = load_ppg(
                             segment_metadata,
                             record_name,
-                            label,
                             start_seconds,
                             end_seconds,
                             window_size,
@@ -200,9 +269,11 @@ def load_data(
 
                         # Skip if signal is None (due to NaN values or low quality)
                         if windowed_ppg is not None:
-                            all_signals.extend(windowed_ppg)
-                            all_labels.extend([label] * len(windowed_ppg))
-                            all_patient_ids.extend([patient_id] * len(windowed_ppg))
+                            spectrograms = create_spectrograms(windowed_ppg, target_fs)
+                            all_spectrograms.extend(spectrograms)
+
+                            # Track patient IDs for patient-level splitting later
+                            all_patient_ids.extend([patient_id] * len(spectrograms))
 
             except Exception as e:
                 print(f"Error loading {segment} from {file[:-4]}: {e}")
@@ -210,8 +281,7 @@ def load_data(
                 continue
 
     return (
-        torch.stack(all_signals),
-        torch.tensor(all_labels),
+        torch.stack(all_spectrograms),
         all_patient_ids,
         quality_metrics,
     )
@@ -257,12 +327,6 @@ def get_dataloaders(cfg):
     )
 
     return train_loader, val_loader, test_loader
-
-
-def tokenize_signals(signals):
-    # Tokenize signals by rounding to nearest integer (Tokens: 0-100)
-    scale = 100 * signals
-    return torch.round(scale).to(torch.int32)
 
 
 def find_optimal_patient_subset(patient_IDs, target_number_of_segments, patient_info):
@@ -317,7 +381,7 @@ def find_optimal_patient_subset(patient_IDs, target_number_of_segments, patient_
 
 
 def split_by_patient(
-    signals,
+    spectrograms,
     labels,
     patient_ids,
     test_size=0.2,
@@ -328,14 +392,14 @@ def split_by_patient(
     and target split sizes.
 
     Args:
-        signals: Tensor of signal data
+        spectrograms: Tensor of spectrogram data
         labels: Tensor of labels
-        patient_ids: List of patient IDs corresponding to each signal
+        patient_ids: List of patient IDs corresponding to each spectrogram
         test_size: Proportion of data to use for testing
         val_size: Proportion of training data to use for validation
 
     Returns:
-        Tuple of (train_signals, train_labels, val_signals, val_labels, test_signals, test_labels)
+        Tuple of (train_spectrograms, train_labels, val_spectrograms, val_labels, test_spectrograms, test_labels)
     """
 
     # Get unique patient IDs and their segment counts
@@ -427,10 +491,13 @@ def split_by_patient(
     val_indices = get_indices_for_split(val_pd_ids + val_non_pd_ids)
     test_indices = get_indices_for_split(test_pd_ids + test_non_pd_ids)
 
-    # Split signals and labels based on indices
-    train_signals, train_labels = signals[train_indices], labels[train_indices]
-    val_signals, val_labels = signals[val_indices], labels[val_indices]
-    test_signals, test_labels = signals[test_indices], labels[test_indices]
+    # Split spectrograms and labels based on indices
+    train_spectrograms, train_labels = (
+        spectrograms[train_indices],
+        labels[train_indices],
+    )
+    val_spectrograms, val_labels = spectrograms[val_indices], labels[val_indices]
+    test_spectrograms, test_labels = spectrograms[test_indices], labels[test_indices]
 
     # Print distribution statistics
     for split_name, split_labels in [
@@ -447,38 +514,70 @@ def split_by_patient(
         print(f"Non-PD: {non_pd_count} ({non_pd_count/total*100:.1f}%)")
 
     return (
-        train_signals,
+        train_spectrograms,
         train_labels,
-        val_signals,
+        val_spectrograms,
         val_labels,
-        test_signals,
+        test_spectrograms,
         test_labels,
     )
 
 
 def main():
+    """
+    Main function for preprocessing PPG (Photoplethysmography) data and creating train/validation/test datasets.
+
+    Process:
+    1. Creates data directory if it doesn't exist
+    2. Loads and processes PD (Parkinson's Disease) patient data:
+        - Loads raw PPG signals
+        - Segments signals into windows
+        - Creates spectrograms
+        - Saves processed data
+    3. Loads and processes non-PD patient data equivalently
+    4. Analyzes and visualizes signal quality metrics for both groups
+    5. Combines and splits data into train/validation/test sets:
+        - Ensures patient-level splitting (all segments from one patient stay together)
+        - Maintains class balance
+        - Uses 70/10/20 split for train/validation/test
+    6. Creates and saves PyTorch datasets
+
+    Creates Files:
+        - data/pd_data.pt: Processed PD patient data
+        - data/non_pd_data.pt: Processed non-PD patient data
+        - data/quality_metrics.pt: Signal quality metrics
+        - data/train_dataset.pt: Training dataset
+        - data/val_dataset.pt: Validation dataset
+        - data/test_dataset.pt: Test dataset
+        - plots/quality_metrics_distribution.png: Visualization of signal quality metrics
+
+    Notes:
+        - Handles memory management by clearing unused variables
+        - Prints progress and statistics throughout processing
+    """
+
     os.makedirs("data", exist_ok=True)
 
     print("Processing PD data...")
-    pd_signals, pd_labels, pd_patient_ids, pd_quality_metrics = load_data(
-        "data/waveform_data/PD/", label=1
+    pd_spectrograms, pd_patient_ids, pd_quality_metrics = load_data(
+        "data/waveform_data/PD/"
     )
 
-    torch.save((pd_signals, pd_labels, pd_patient_ids), "data/pd_data.pt")
+    torch.save((pd_spectrograms, pd_patient_ids, pd_quality_metrics), "data/pd_data.pt")
     print(
-        f"Saved {len(pd_signals)} PD segments, from {len(set(pd_patient_ids))} patients, each of length 10 seconds"
+        f"Saved {len(pd_spectrograms)} PD segments, from {len(set(pd_patient_ids))} patients, each of length 5 seconds"
     )
 
     print("Processing non-PD data...")
-    non_pd_signals, non_pd_labels, non_pd_patient_ids, non_pd_quality_metrics = (
-        load_data("data/waveform_data/non_PD/", label=0)
+    non_pd_spectrograms, non_pd_patient_ids, non_pd_quality_metrics = load_data(
+        "data/waveform_data/non_PD/"
     )
     torch.save(
-        (non_pd_signals, non_pd_labels, non_pd_patient_ids),
+        (non_pd_spectrograms, non_pd_patient_ids, non_pd_quality_metrics),
         "data/non_pd_data.pt",
     )
     print(
-        f"Saved {len(non_pd_signals)} non-PD segments, from {len(set(non_pd_patient_ids))} patients, each of length 10 seconds"
+        f"Saved {len(non_pd_spectrograms)} non-PD segments, from {len(set(non_pd_patient_ids))} patients, each of length 5 seconds"
     )
 
     quality_metrics = {
@@ -493,18 +592,22 @@ def main():
     torch.save(quality_metrics, "data/quality_metrics.pt")
     analyze_and_visualize_metrics(quality_metrics)
 
+    # Create labels for PD and non-PD data
+    pd_labels = torch.ones(len(pd_spectrograms), 1)
+    non_pd_labels = torch.zeros(len(non_pd_spectrograms), 1)
+
     # Concatenate PD and non-PD data
-    all_signals = torch.cat([pd_signals, non_pd_signals])
+    all_spectrograms = torch.cat([pd_spectrograms, non_pd_spectrograms])
     all_labels = torch.cat([pd_labels, non_pd_labels])
     all_patient_ids = pd_patient_ids + non_pd_patient_ids
 
     # Clear memory
     del (
-        pd_signals,
+        pd_spectrograms,
         pd_labels,
         pd_patient_ids,
         pd_quality_metrics,
-        non_pd_signals,
+        non_pd_spectrograms,
         non_pd_labels,
         non_pd_patient_ids,
         non_pd_quality_metrics,
@@ -512,26 +615,25 @@ def main():
     )
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-    tokenized_signals = tokenize_signals(all_signals)
-
-    # Clear memory
-    del all_signals
-    torch.cuda.empty_cache() if torch.cuda.is_available() else None
-
     # Split data by patient
-    train_signals, train_labels, val_signals, val_labels, test_signals, test_labels = (
-        split_by_patient(
-            tokenized_signals, all_labels, all_patient_ids, test_size=0.2, val_size=0.1
-        )
+    (
+        train_spectrograms,
+        train_labels,
+        val_spectrograms,
+        val_labels,
+        test_spectrograms,
+        test_labels,
+    ) = split_by_patient(
+        all_spectrograms, all_labels, all_patient_ids, test_size=0.2, val_size=0.1
     )
 
     # Clear memory
-    del tokenized_signals, all_labels, all_patient_ids
+    del all_labels, all_patient_ids
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-    train_dataset = PPGDataset(train_signals, train_labels)
-    val_dataset = PPGDataset(val_signals, val_labels)
-    test_dataset = PPGDataset(test_signals, test_labels)
+    train_dataset = PPGDataset(train_spectrograms, train_labels)
+    val_dataset = PPGDataset(val_spectrograms, val_labels)
+    test_dataset = PPGDataset(test_spectrograms, test_labels)
 
     print("Saving data...")
     torch.save(train_dataset, "data/train_dataset.pt", pickle_protocol=4)

@@ -1,15 +1,15 @@
 import numpy as np
 import scipy.signal as sp
-import torch
 import wfdb
 import os
 from matplotlib import pyplot as plt
-from sklearn.preprocessing import minmax_scale
 from vital_sqi.sqi.standard_sqi import (
     skewness_sqi,
     zero_crossings_rate_sqi,
     perfusion_sqi,
 )
+from scipy.fftpack import fft
+from scipy.ndimage import gaussian_filter
 
 
 def find_peaks_ppg_li(ppg, fs):
@@ -295,10 +295,10 @@ def assess_ppg_quality(raw_ppg, filtered_ppg, fs):
 
     # Quality thresholds based on empirical analysis (see quality metrics distribution plot in plots directory)
     is_high_quality = (
-        0.3 < skewness < 0.7
+        0.2 < skewness < 0.7
         and zero_crossing_rate < 0.025
         and matched_peak_detection > 0.7
-        and 230 < perfusion_index < 310
+        and 180 < perfusion_index < 310
     )
 
     metrics = {
@@ -313,7 +313,7 @@ def assess_ppg_quality(raw_ppg, filtered_ppg, fs):
 
 def filter_ppg(ppg, fs):
     """
-    Applies bandpass filtering to the PPG signal to remove noise.
+    Applies a 4th order Chebyshev-II filter to the PPG signal.
 
     Args:
         ppg: Raw PPG signal
@@ -323,11 +323,11 @@ def filter_ppg(ppg, fs):
         Filtered PPG signal
     """
 
-    lpf_cutoff = 1
-    hpf_cutoff = 15
+    lpf_cutoff = 0.5
+    hpf_cutoff = 10
 
-    sos_ppg = sp.butter(
-        4, [lpf_cutoff, hpf_cutoff], btype="bandpass", output="sos", fs=fs
+    sos_ppg = sp.cheby2(
+        N=4, rs=40, Wn=[lpf_cutoff, hpf_cutoff], btype="bandpass", output="sos", fs=fs
     )
 
     # Apply zero-phase filtering
@@ -339,30 +339,32 @@ def filter_ppg(ppg, fs):
 def load_ppg(
     metadata,
     record_name,
-    label,
     start_seconds,
     end_seconds,
     window_size,
     target_fs,
 ):
     """
-    Loads a window_size second segment of PPG signal from a WFDB record.
-    The signal is bandpass filtered and resampled to target_fs.
-    Signals are filtered according certain PPG quality indices (see assess_ppg_quality).
-    A sliding window of 1 second (9 second overlap for default window size of 10 seconds) is used to augment the dataset.
+    Loads the PPG signal from the given WFDB record and segments it into window_size sized windows with no overlap.
+    The signal is bandpass filtered, resampled to target_fs and normalized to zero mean and unit variance.
+    Signals are filtered for quality according to certain PPG quality indices (see assess_ppg_quality).
 
     Args:
         metadata: WFDB record header containing signal metadata
         record_name: Name/path of the record to load
-        label: Label whether the signal is from patient with PD or control (1 for PD, 0 for non-PD)
         start_seconds: Starting point in seconds from where to load the signal
         end_seconds: Ending point in seconds until the signal is to be loaded
-        window_size: Size of individual PPG window in seconds
+        window_size: Size of individual PPG windows in seconds
         target_fs: Target sampling frequency to resample the signal to
 
     Returns:
-        Resampled PPG signal if quality is high and it doesn't contain NaN values, otherwise None
-        Metrics dictionary containing the calculated metrics for tracking signal quality
+        A tuple containing:
+            - windows: Array of windowed PPG signals of shape (n_windows, samples_per_window)
+              if signal quality is within thresholds, None otherwise
+            - metrics: Dictionary containing signal quality metrics
+                Returns None for metrics only if the signal contains NaN values
+                Metrics are still returned even if signal quality is low, to track signal
+                quality over entire dataset
     """
 
     # Original sampling frequency of the signal
@@ -397,16 +399,15 @@ def load_ppg(
     num_samples = int(len(filtered_ppg) * target_fs / original_fs)
     resampled_ppg = sp.resample(filtered_ppg, num_samples)
 
-    # Rescaling the signal to [0, 1] is required for tokenization approach
-    resampled_ppg = minmax_scale(resampled_ppg, feature_range=(0, 1))
+    # Normalize the signal to zero mean and unit variance
+    resampled_ppg = (resampled_ppg - np.mean(resampled_ppg)) / (
+        np.std(resampled_ppg) + 1e-8
+    )
 
     # Create windows of PPG signal
     window_samples = int(window_size * target_fs)  # Number of samples in each window
 
-    # 1 second window for PD, 1.5 second window for non-PD to have approximately same number of windows
-    sliding_window_size = 1 if label == 1 else 1.35
-
-    stride = int(sliding_window_size * target_fs)  # Size of sliding window in samples
+    stride = int(window_size * target_fs)  # Size of sliding window in samples
     n_windows = ((len(resampled_ppg) - window_samples) // stride) + 1
 
     # Create sliding windows
@@ -414,10 +415,7 @@ def load_ppg(
         resampled_ppg[: n_windows * stride + window_samples], window_samples
     )[::stride]
 
-    # Convert to list of torch tensors
-    windowed_signals = [torch.from_numpy(window.copy()) for window in windows]
-
-    return windowed_signals, metrics
+    return windows, metrics
 
 
 def plot_ppg(ppg, fs, filename, metrics):

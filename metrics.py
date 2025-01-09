@@ -48,6 +48,7 @@ class BinaryClassificationMetrics:
 
         # These lists store metric values across epochs for plotting after training is completed
         self.loss = []
+        self.learning_rate = []
         self.auc_roc = []
         self.accuracy = []
         self.sensitivity = []
@@ -91,12 +92,13 @@ class BinaryClassificationMetrics:
         self.fn += torch.sum((~thresholded_prediction & label)).item()
         self.tn += torch.sum((~thresholded_prediction & ~label)).item()
 
-    def calculate_and_print_metrics(self, loss):
+    def calculate_and_print_metrics(self, loss, learning_rate):
         """
         Computes and stores all metrics for the current epoch.
 
         Args:
             loss: Average loss value for the epoch
+            learning_rate: Learning rate for the current epoch
 
         Returns:
             None
@@ -106,6 +108,7 @@ class BinaryClassificationMetrics:
         # Calculate metrics for current epoch
         metrics = {
             "loss": loss,
+            "learning_rate": learning_rate,
             "auc_roc": self.calculate_auc_roc(),
             "accuracy": self.calculate_accuracy(),
             "sensitivity": self.calculate_sensitivity(),
@@ -144,6 +147,7 @@ class BinaryClassificationMetrics:
     def __str__(self):
         return (
             f"Loss: {self.loss[-1]}\n"
+            f"Learning Rate: {self.learning_rate[-1]}\n"
             f"AUC-ROC: {self.auc_roc[-1]}\n"
             f"Accuracy: {self.accuracy[-1]}\n"
             f"Sensitivity: {self.sensitivity[-1]}\n"
