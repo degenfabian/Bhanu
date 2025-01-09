@@ -8,8 +8,6 @@ from vital_sqi.sqi.standard_sqi import (
     zero_crossings_rate_sqi,
     perfusion_sqi,
 )
-from scipy.fftpack import fft
-from scipy.ndimage import gaussian_filter
 
 
 def find_peaks_ppg_li(ppg, fs):
