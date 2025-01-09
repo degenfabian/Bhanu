@@ -49,7 +49,7 @@ class Config:
         if torch.backends.mps.is_available()
         else "cpu"
     )
-    loss_function = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([1.325]).to(device))
+    loss_function = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([1.364]).to(device))
     model_path = "model_weights/"
     data_path = "data/"
 
