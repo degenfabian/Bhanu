@@ -102,7 +102,7 @@ def create_spectrograms(signals, fs):
     Creates Hilbert-Huang Transform (HHT) based spectrograms from a list of signals.
 
     This function performs EMD (Empirical Mode Decomposition) on each signal,
-    computes instantaneous frequencies and amplitudes using Normalized Hilbert Transform,
+    computes instantaneous frequencies and amplitudes using Hilbert Transform,
     and generates a time-frequency-amplitude representation (spectrogram).
 
     Args:
@@ -120,16 +120,20 @@ def create_spectrograms(signals, fs):
     """
 
     spectrograms = []  # List to store spectrograms for each window
-
     # Calculate spectrograms for each window
     for signal in signals:
         # Decompose signal into intrinsic mode functions (IMFs) using masked EMD
         # Limited to 7 IMFs to capture relevant frequency components
         intrinsic_mode_functions = emd.sift.mask_sift(signal, max_imfs=7)
 
-        # Calculate instantaneous frequencies and amplitudes using Normalized Hilbert Transform
+        # check for nan values in intrinsic mode functions
+        if np.isnan(intrinsic_mode_functions).any():
+            print("Signal contains NaN values, skipping...")
+            continue
+
+        # Calculate instantaneous frequencies and amplitudes using Hilbert Transform
         _, inst_freqs, inst_amps = emd.spectra.frequency_transform(
-            intrinsic_mode_functions, fs, method="nht"
+            intrinsic_mode_functions, fs, method="hilbert"
         )
 
         # Generate Hilbert-Huang Transform spectrogram
@@ -144,6 +148,11 @@ def create_spectrograms(signals, fs):
 
         # Resize spectrogram to target dimensions (224x224)
         hilbert_huang_transform = cv2.resize(hilbert_huang_transform, (224, 224))
+
+        # Normalize spectrogram to range [0, 1]
+        hilbert_huang_transform = (hilbert_huang_transform - hilbert_huang_transform.min()) / (
+            hilbert_huang_transform.max() - hilbert_huang_transform.min()
+        )
 
         # Convert to PyTorch tensor and add channel dimension for input to model
         spectrum = torch.from_numpy(hilbert_huang_transform)
