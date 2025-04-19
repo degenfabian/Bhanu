@@ -1,0 +1,18 @@
+[project]
+name = "bhanu"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Fabian Degen"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "e2epyppg (>=0.0.9,<0.0.10)",
+    "tqdm (>=4.67.1,<5.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

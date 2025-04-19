@@ -1,5 +1,7 @@
 data/
-.ruff_cache/
 __pycache__/
+.ruff_cache/
 model_weights/
-.DS_Store
+.venv/
+.vscode/
+logs/

@@ -53,6 +53,7 @@ class BinaryClassificationMetrics:
         self.accuracy = []
         self.sensitivity = []
         self.specificity = []
+        self.positive_predictive_value = []
         self.f1_score = []
 
     def reset(self):
@@ -92,7 +93,7 @@ class BinaryClassificationMetrics:
         self.fn += torch.sum((~thresholded_prediction & label)).item()
         self.tn += torch.sum((~thresholded_prediction & ~label)).item()
 
-    def calculate_and_print_metrics(self, loss, learning_rate):
+    def calculate_metrics(self, loss, learning_rate):
         """
         Computes and stores all metrics for the current epoch.
 
@@ -113,6 +114,7 @@ class BinaryClassificationMetrics:
             "accuracy": self.calculate_accuracy(),
             "sensitivity": self.calculate_sensitivity(),
             "specificity": self.calculate_specificity(),
+            "positive_predictive_value": self.calculate_positive_predictive_value(),
             "f1_score": self.calculate_f1_score(),
         }
 
@@ -122,9 +124,6 @@ class BinaryClassificationMetrics:
 
         # Reset counts and raw data for next epoch
         self.reset()
-
-        # Print metrics for the epoch
-        print(self.__str__())
 
     def get_current_auc_roc(self):
         return self.auc_roc[-1]
@@ -140,6 +139,9 @@ class BinaryClassificationMetrics:
 
     def calculate_specificity(self):
         return self.tn / (self.tn + self.fp)
+
+    def calculate_positive_predictive_value(self):
+        return self.tp / (self.tp + self.fp)
 
     def calculate_f1_score(self):
         return (2 * self.tp) / (2 * self.tp + self.fp + self.fn)
